@@ -8,6 +8,7 @@
       "release-type": "go",
       "changelog-path": "CHANGELOG.md",
       "include-component-in-tag": false,
+      "draft": true,
       "extra-files": [
         {
           "type": "generic",
