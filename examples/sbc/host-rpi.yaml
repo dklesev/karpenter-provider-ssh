@@ -1,0 +1,39 @@
+# One SSHHost per board. The class label is the karpenter instance type: one
+# class per identical board model (a class advertises the SMALLEST capacity of
+# its members and must be single-arch — a Pi 4 and a Pi 5 are two classes).
+#
+# address: reserve the board's IP in DHCP. The field is immutable and the
+#   zombie guard matches it against the Node's InternalIP — a board that
+#   re-leases a different address is a new SSHHost (delete + recreate).
+# capacity: at or below what the probe observes (`nproc`, MemTotal) or every
+#   probe reports CapacityDrift; a 4 GB Pi 4 reports ~3795Mi.
+apiVersion: karpenter.dklesev.github.io/v1beta1
+kind: SSHHost
+metadata:
+  name: rpi-01
+  namespace: kpssh-system
+  labels:
+    karpenter.dklesev.github.io/host-class: rpi4
+spec:
+  address: 192.168.1.216
+  port: 22
+  user: kpssh                          # created by prep-host.sh / cloud-init.yaml
+  sshKeySecretRef: {name: pool-ssh-key}   # Secret key: privateKey (PEM)
+  capacity:
+    cpu: "4"
+    memory: 3500Mi
+---
+# A second board of the same model joins the same class — karpenter then
+# chooses whichever is Available. Uncomment and adjust.
+# apiVersion: karpenter.dklesev.github.io/v1beta1
+# kind: SSHHost
+# metadata:
+#   name: rpi-02
+#   namespace: kpssh-system
+#   labels:
+#     karpenter.dklesev.github.io/host-class: rpi4
+# spec:
+#   address: 192.168.1.217
+#   user: kpssh
+#   sshKeySecretRef: {name: pool-ssh-key}
+#   capacity: {cpu: "4", memory: 3500Mi}

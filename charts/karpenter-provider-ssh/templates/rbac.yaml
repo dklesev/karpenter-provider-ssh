@@ -1,0 +1,235 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+rules:
+  # ---- karpenter core: cluster state used for scheduling simulation --------
+  # karpenter's cluster-state cache + the scheduler's pod/node/volume topology.
+  # ConfigMaps are NOT read cluster-wide: the only one this controller touches
+  # is kube-public/cluster-info (see the namespaced Role below).
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "persistentvolumes", "persistentvolumeclaims", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  # pod-owner lookup for disruption (do-not-disrupt, owner-aware eviction)
+  - apiGroups: ["apps"]
+    resources: ["daemonsets", "deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  # disruption checks PDBs before draining a node
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+  # volume topology + attach limits in the scheduling simulation
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "csinodes", "volumeattachments"]
+    verbs: ["get", "list", "watch"]
+  # node heartbeat leases (kube-node-lease) feed node-repair/liveness checks
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch"]
+  # ---- karpenter core: node lifecycle --------------------------------------
+  # Nodes are never created by karpenter (the kubelet registers them) and never
+  # replaced wholesale — core only PATCHes (registration labels/taints, the
+  # termination finalizer, disruption taints) and DELETEs. hostprobe's zombie
+  # guard also deletes the Node object of an unclaimed host that came back with
+  # a live kubelet (pkg/controllers/hostprobe.go) — membership IS the billable
+  # unit this provider scales.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["patch", "delete"]
+  # termination drains the node before leave
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  # terminator force-deletes pods stuck past their grace period
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]
+  # karpenter core's recorder (corev1 events)
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # hostprobe events go through manager.GetEventRecorder (the events.k8s.io/v1
+  # API) — without this rule they are Forbidden and silently dropped. The
+  # recorder only ever creates a new event or patches the aggregation count.
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # ---- karpenter.sh API -----------------------------------------------------
+  - apiGroups: ["karpenter.sh"]
+    resources: ["nodepools", "nodepools/status", "nodeoverlays", "nodeoverlays/status"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["karpenter.sh"]
+    resources: ["nodeclaims", "nodeclaims/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # ---- provider API ---------------------------------------------------------
+  # SSHHost inventory is read-only to the controller: the claim lock is a CAS on
+  # status.claimRef (instance provider), the probe state machine writes
+  # status.state/lastProbeError — spec is operator-owned.
+  - apiGroups: ["karpenter.dklesev.github.io"]
+    resources: ["sshhosts"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["karpenter.dklesev.github.io"]
+    resources: ["sshhosts/status"]
+    verbs: ["update", "patch"]
+  # SSHJoinProfile is pure input (scripts) — it has no status subresource
+  - apiGroups: ["karpenter.dklesev.github.io"]
+    resources: ["sshjoinprofiles"]
+    verbs: ["get", "list", "watch"]
+  # the nodeclass controller adds/removes the termination finalizer on the
+  # object itself and writes readiness conditions on the status subresource
+  - apiGroups: ["karpenter.dklesev.github.io"]
+    resources: ["sshnodeclasses"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["karpenter.dklesev.github.io"]
+    resources: ["sshnodeclasses/status"]
+    verbs: ["update", "patch"]
+  {{- with .Values.rbac.extraRules }}
+  # ---- user-supplied extra rules --------------------------------------------
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "karpenter-provider-ssh.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "karpenter-provider-ssh.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Leader-election leases live in the release namespace. controller-runtime's
+# leaselock only gets, creates and updates its single Lease — no list/watch.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "karpenter-provider-ssh.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# SSH private keys and joinSecretRef material live in the pool namespace. The
+# join/leave paths read them by name off the SSHHost/SSHNodeClass refs
+# (pkg/providers/instance/{instance,leave}.go) — a plain Get, never list/watch,
+# so the controller can never enumerate the namespace's Secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-pool-secrets
+  namespace: {{ include "karpenter-provider-ssh.poolNamespace" . }}
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-pool-secrets
+  namespace: {{ include "karpenter-provider-ssh.poolNamespace" . }}
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-pool-secrets
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "karpenter-provider-ssh.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Bootstrap-token minting (join phase) writes bootstrap.kubernetes.io/token
+# Secrets into kube-system; token IDs are random, so resourceNames cannot
+# narrow this further. Deliberately NO get/list/update: create mints, delete
+# (by exact name, derived from the token in memory) cleans up unused tokens.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-bootstrap-tokens
+  namespace: kube-system
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-bootstrap-tokens
+  namespace: kube-system
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-bootstrap-tokens
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "karpenter-provider-ssh.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Cluster discovery: when SSHNodeClass.spec.cluster is unset, the bootstrap
+# provider falls back to the kube-public/cluster-info ConfigMap for the API
+# endpoint + CA (pkg/providers/bootstrap/bootstrap.go — a single clientset Get).
+# That one object is the controller's entire ConfigMap surface.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-cluster-info
+  namespace: kube-public
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["cluster-info"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-cluster-info
+  namespace: kube-public
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "karpenter-provider-ssh.fullname" . }}-cluster-info
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "karpenter-provider-ssh.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

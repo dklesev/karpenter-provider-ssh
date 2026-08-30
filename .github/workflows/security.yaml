@@ -1,0 +1,99 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 4 * * 1" # weekly — catches new CVEs in unchanged code
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs on PR pushes; never cancel main/scheduled runs.
+  group: security-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  govulncheck:
+    name: govulncheck (Go call-graph CVE scan)
+    # Skip on the release-please PR: it only bumps changelog/versions of
+    # code already validated on main, and rebases on every push (duplicates).
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please--') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: govulncheck
+        # @latest is deliberate — every other tool here is pinned, but a
+        # scanner pinned to an old release stops finding new CVEs, which is
+        # the one failure mode this job exists to prevent. The weekly cron
+        # re-runs it against unchanged code for the same reason.
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  image-scan:
+    name: Image SBOM + vulnerability scan
+    # Also the repo's "does the Dockerfile build" check — ci.yaml has no
+    # separate image-build job because syft/grype need a built image anyway.
+    # Skip on the release-please PR: it only bumps changelog/versions of
+    # code already validated on main, and rebases on every push (duplicates).
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please--') }}
+    runs-on: ubuntu-24.04
+    # Image build + syft + a cold grype DB download.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          load: true
+          tags: scan-target:ci
+
+      - name: SBOM (syft)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: scan-target:ci
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: true
+
+      - name: Scan SBOM (grype)
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        with:
+          sbom: sbom.spdx.json
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+
+  dependency-review:
+    name: Dependency review (PRs)
+    # Needs the dependency graph API — free on public repos only.
+    if: ${{ github.event_name == 'pull_request' && !github.event.repository.private }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Review dependency diff
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high

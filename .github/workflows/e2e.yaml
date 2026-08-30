@@ -1,0 +1,223 @@
+name: e2e
+
+# e2e is the release gate, not a per-commit check. The kind harness is costly,
+# so it runs on demand, not on every push — and not automatically on every
+# release-PR rebase either (each push to main rebases that PR; auto-dispatch
+# would put the full matrix back on every commit):
+#
+#   - release.yaml marks each new release-PR head's `e2e` status pending.
+#     With `e2e` a required status check on main, the release PR cannot merge
+#     until a real run reports green on that head — which a maintainer
+#     triggers once, right before merging, by commenting `/e2e` on it.
+#   - A maintainer can comment `/e2e` on any PR to run the suite there
+#     (same status reporting, so it also satisfies the required check).
+#     Review fork PRs before commenting — the scenario jobs execute the PR's
+#     code (but hold no token; see the privilege split below). The run is
+#     pinned to the head SHA at comment time, so a push racing your review
+#     cannot swap in unreviewed code: it just runs the old SHA.
+#   - workflow_dispatch covers manual runs on any branch.
+#
+# Feature PRs get the `e2e` context set to success by e2e-exempt.yaml (exempt —
+# gated at release time); unit + envtest suites still run on every PR.
+#
+# Note on triggers: release-please pushes with GITHUB_TOKEN, and GitHub never
+# fires pull_request workflows for GITHUB_TOKEN pushes (recursion guard) —
+# workflow_dispatch and repository_dispatch are the documented exceptions,
+# which is why release.yaml dispatches explicitly instead of relying on a
+# pull_request trigger here.
+#
+# Shape: one scenario per runner via a matrix (fail-fast off), so each kind
+# cluster gets a whole runner to itself instead of several fighting for one
+# runner's disk/CPU — wall-clock is the slowest single scenario, and a failing
+# leg does not sink the others. Privilege is split three ways so PR-authored
+# code never runs in a job holding a write-scoped token:
+#   prepare   pins the sha + sets the pending status + acks. No PR code.
+#   scenarios the matrix. Runs PR code, holds ONLY contents:read.
+#   report    sets the final aggregate status. No PR code.
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  # One live run per PR (comment trigger) or branch (dispatch trigger); a
+  # newer release-PR rebase supersedes the in-flight run for the old head.
+  group: e2e-${{ github.event.issue.number || github.ref_name }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ---------------------------------------------------------------- prepare
+  # Trusted: resolves the tested ref, acks the comment, sets the pending
+  # status. Runs no PR-authored code, so it can safely hold the write tokens.
+  prepare:
+    name: prepare
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request &&
+       startsWith(github.event.comment.body, '/e2e') &&
+       contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # One entry per API this job actually calls:
+    #   contents:read        (unused here directly, kept for gh api base auth)
+    #   statuses:write       the `e2e` commit status — the point of the run.
+    #   pull-requests:write  `gh pr view --json headRefOid` (GET /pulls/{n})
+    #                        AND the ack reaction: the /e2e comment lives on a
+    #                        PR, and reactions on PR comments authorize against
+    #                        the pull-requests scope — issues:write only covers
+    #                        comments on actual issues (found live: 403
+    #                        "Resource not accessible by integration").
+    permissions:
+      contents: read
+      statuses: write
+      pull-requests: write
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+    steps:
+      - name: Acknowledge /e2e comment
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket',
+            });
+
+      - name: Resolve tested ref
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            sha=$(gh pr view "${{ github.event.issue.number }}" --repo "${{ github.repository }}" \
+              --json headRefOid --jq .headRefOid)
+            echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set e2e status (pending)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ steps.target.outputs.sha }}" \
+            -f state=pending -f context=e2e \
+            -f description="kind e2e running" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  # -------------------------------------------------------------- scenarios
+  # The matrix. Executes PR-authored code (the harness + Dockerfiles), so it
+  # holds ONLY contents:read — no statuses/issues token to leak.
+  scenarios:
+    name: ${{ matrix.scenario }}
+    needs: prepare
+    runs-on: ubuntu-24.04
+    # Outermost of three nested bounds, so it must be the loosest: a scenario's
+    # waitFor budgets fail first and name the wait that expired, `go test
+    # -timeout 40m` panics next, and only then does this kill the job with no
+    # message at all. Sized above the longest scenario's worst case (reboot,
+    # ~31m of waits plus cluster setup) — at 30m this was inverted and a slow
+    # runner got the useless failure instead of the useful one.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - TestE2EScaleUp
+          - TestE2EConsolidation
+          - TestE2EReboot
+          - TestE2EZombieGuard
+          - TestE2EPowerOutage
+          - TestE2EVerifiedJoinAndLeave
+          - TestE2EVerifiedRogueSignerRejectedByShim
+          - TestE2EVerifiedUnsignedRejectedByController
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The PINNED sha prepare resolved, never refs/pull/N/head. That ref
+          # moves: a maintainer reviews the diff, comments /e2e, the author
+          # pushes, and the runner would execute code nobody reviewed while the
+          # status lands on the sha that was reviewed. Fork PR head commits live
+          # in the base repo (that is what makes refs/pull/N/head resolvable),
+          # so checking the sha out directly works for forks too.
+          ref: ${{ needs.prepare.outputs.sha }}
+          # This job runs PR-authored code. checkout defaults to persisting
+          # GITHUB_TOKEN in .git/config; the job's token is only contents:read,
+          # but the harness invokes no git at all, so drop it anyway.
+          persist-credentials: false
+
+      - name: Free runner disk
+        # kind, the controller build and the pool-host containers all share the
+        # runner disk; below ~10% free the joined node's kubelet fires
+        # ephemeral-storage eviction, gets the disk-pressure taint and the
+        # scenario workload never schedules. Drop ~20GB of preinstalled
+        # toolchains we never touch.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af >/dev/null
+          df -h /
+
+      - name: Set up kind
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          install_only: true
+          # kind-action's default kind is old (ships k8s v1.32 node images);
+          # pin a current kind so CI runs the same k8s minor the harness is
+          # developed against (kindest/node:v1.34.0, the v0.32.0 default).
+          version: v0.32.0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run scenario
+        # One scenario in its own kind cluster. The harness dumps per-cluster
+        # diagnostics inline (go test -v) on failure, BEFORE tearing the cluster
+        # down — so there is no separate post-run log step (the cluster is gone
+        # by then anyway).
+        run: make e2e-one E2E_RUN=${{ matrix.scenario }}
+
+  # ----------------------------------------------------------------- report
+  # Trusted: reports the aggregate result as the `e2e` commit status. Runs no
+  # PR code, so it can hold statuses:write.
+  report:
+    name: report
+    needs: [prepare, scenarios]
+    timeout-minutes: 10
+    # Report on success and failure, but not on cancellation (a superseded run
+    # leaves the old head pending; the new head's run reports its own) and not
+    # if prepare itself was skipped/failed (no SHA to report against).
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Set e2e status (result)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # needs.scenarios.result is the matrix aggregate: success iff every
+          # leg passed, failure if any leg failed (fail-fast is off).
+          state=failure
+          [ "${{ needs.scenarios.result }}" = "success" ] && state=success
+          gh api "repos/${{ github.repository }}/statuses/${{ needs.prepare.outputs.sha }}" \
+            -f state="$state" -f context=e2e \
+            -f description="kind e2e ${state}" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

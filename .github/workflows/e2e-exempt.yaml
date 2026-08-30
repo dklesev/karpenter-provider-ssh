@@ -1,0 +1,42 @@
+name: e2e exempt
+
+# The kind e2e suite gates the release-please PR, not feature PRs (see
+# e2e.yaml). `e2e` is a required status check on main, so feature-PR heads
+# need the context satisfied explicitly; maintainers can still comment `/e2e`
+# to run the real suite, and its result then overwrites this context.
+#
+# pull_request_target on purpose: fork PRs get a read-only GITHUB_TOKEN under
+# plain pull_request, which cannot write commit statuses. This is safe here
+# because the job never checks out or executes PR code — it is a single API
+# call against the base repository.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-exempt-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  exempt:
+    name: e2e exempt (feature PR)
+    # The release-please PR is the one place the real suite is required.
+    if: ${{ !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Set e2e status (exempt)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }}" \
+            -f state=success -f context=e2e \
+            -f description="gated on the release PR — comment /e2e to run here" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

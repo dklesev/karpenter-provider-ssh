@@ -1,0 +1,39 @@
+#cloud-config
+# Image-time equivalent of prep-host.sh for Raspberry Pi OS (bookworm/trixie
+# images boot with cloud-init NoCloud; Raspberry Pi Imager writes user, ssh and
+# Wi-Fi into `user-data` on the boot partition). After flashing, merge these
+# keys into that file — /boot/firmware/user-data on the card, or the FAT
+# partition on your workstation — before the first boot. Substitute
+# ${KPSSH_PUBKEY} with the pool public key line.
+#
+# Keeps the user Imager configured (`default`), adds the pool login, enables
+# the memory cgroup (one reboot at the end of the first boot), turns Wi-Fi
+# power save off. Packages come later from the join profile's install phase.
+users:
+  - default
+  - name: kpssh
+    gecos: karpenter-provider-ssh pool login
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: "ALL=(root) NOPASSWD: ALL"
+    ssh_authorized_keys:
+      - "${KPSSH_PUBKEY}"
+
+bootcmd:
+  # Raspberry Pi OS boots with the memory cgroup controller off; kubelet and
+  # runc need it. Runs every boot, edits once, effective after the reboot.
+  - [ sh, -c, "grep -q cgroup_enable=memory /boot/firmware/cmdline.txt || sed -i '1 s/$/ cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1/' /boot/firmware/cmdline.txt" ]
+
+write_files:
+  - path: /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+    permissions: "0644"
+    content: |
+      # brcmfmac enables 802.11 power save by default and the board drops off
+      # the network after idle minutes. 2 = off.
+      [connection]
+      wifi.powersave = 2
+
+power_state:
+  mode: reboot
+  message: kpssh - rebooting once so the memory cgroup takes effect
+  timeout: 30

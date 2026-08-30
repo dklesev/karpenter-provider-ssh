@@ -1,0 +1,38 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.deprecationWarning" . }}
+
+{{ template "chart.description" . }}
+
+## Install
+
+<!-- x-release-please-start-version -->
+```bash
+helm install karpenter-provider-ssh \
+  oci://ghcr.io/dklesev/charts/karpenter-provider-ssh \
+  --version {{ template "chart.version" . }} \
+  --namespace kpssh-system --create-namespace
+```
+<!-- x-release-please-end -->
+
+**CRDs.** The chart ships the three `karpenter.dklesev.github.io` CRDs in `crds/`
+(installed on first install, untouched on upgrade — update them explicitly with
+`kubectl apply -f charts/karpenter-provider-ssh/crds/` when upgrading).
+`karpenter.sh` CRDs (NodePool/NodeClaim/NodeOverlay) are **deliberately not
+included**: on shared clusters they are owned by the existing karpenter
+install; on greenfield clusters install them once from the pinned module
+(`make install` / `config/karpenter/`).
+
+**Placement.** The controller must be able to reach the pool hosts on their
+SSH port — use `nodeSelector`/`tolerations` to schedule it somewhere with
+that reach.
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}
+
+{{ template "chart.maintainersSection" . }}
+
+## License
+
+Apache-2.0 — see [LICENSE](../../LICENSE).

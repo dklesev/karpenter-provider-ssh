@@ -1,0 +1,61 @@
+version: "2"
+
+run:
+  timeout: 5m
+  # The e2e suite is behind `//go:build e2e`, so without this it is invisible to
+  # every linter — ~1.2k lines of load-bearing harness held to no bar at all.
+  build-tags:
+    - e2e
+
+linters:
+  default: standard
+  enable:
+    - misspell
+    - unconvert
+    - unparam
+    - copyloopvar
+    - nolintlint
+    - errorlint
+    - gocritic
+    - gosec
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # ST1000: package comments on every package is noise for a small provider
+        - -ST1000
+    gosec:
+      excludes:
+        # G101 pattern-matches identifiers like "SSHKeySecretKey" — they name
+        # Secret data keys, not credentials.
+        - G101
+  exclusions:
+    generated: lax
+    rules:
+      - path: zz_generated\..*\.go
+        linters:
+          - all
+      # operatorpkg's status.NewController still takes the legacy
+      # record.EventRecorder, so main.go has to call the deprecated
+      # GetEventRecorderFor. Excluded here rather than with an inline
+      # //nolint:staticcheck on the call: with a warm cache golangci-lint
+      # intermittently reports that directive as unused (nolintlint) even
+      # though SA1019 provably fires without it — a false positive that reds
+      # CI at random and is "fixed" only by knowing to run `cache clean`.
+      # Remove once operatorpkg moves to the events.k8s.io recorder.
+      - path: cmd/controller/main\.go
+        linters:
+          - staticcheck
+        text: SA1019.*GetEventRecorderFor
+      # test helpers keep descriptive parameters even when current call sites
+      # pass one value; gosec's subprocess/file-inclusion flags are noise for
+      # test harnesses that exec fixed local binaries and read temp fixtures.
+      - path: _test\.go
+        linters:
+          - unparam
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

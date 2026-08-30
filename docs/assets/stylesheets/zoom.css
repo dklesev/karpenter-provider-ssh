@@ -1,0 +1,30 @@
+/* Zoom affordance + zoomed state for mermaid diagrams. The diagram lives in
+   a closed shadow root, so zooming works by transform-scaling the host
+   element (see assets/javascript/zoom.js). */
+.md-content div.mermaid,
+.md-content pre.mermaid {
+  cursor: zoom-in;
+}
+
+.dz-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(10, 14, 13, 0.82);
+  cursor: zoom-out;
+  animation: dz-fade 120ms ease-out;
+}
+
+@keyframes dz-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.md-content div.mermaid.dz-zoomed {
+  position: relative;
+  z-index: 1001;
+  cursor: zoom-out;
+  transition: transform 150ms ease-out;
+  background: var(--md-default-bg-color, #fff);
+  border-radius: 0.2rem;
+}

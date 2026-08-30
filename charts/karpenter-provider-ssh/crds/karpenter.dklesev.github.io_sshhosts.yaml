@@ -1,0 +1,343 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: sshhosts.karpenter.dklesev.github.io
+spec:
+  group: karpenter.dklesev.github.io
+  names:
+    categories:
+    - karpenter
+    kind: SSHHost
+    listKind: SSHHostList
+    plural: sshhosts
+    shortNames:
+    - sshh
+    singular: sshhost
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.address
+      name: Address
+      type: string
+    - jsonPath: .metadata.labels['karpenter\.dklesev\.github\.io/host-class']
+      name: Class
+      type: string
+    - jsonPath: .status.state
+      name: State
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.claimRef.name
+      name: Claim
+      type: string
+    - jsonPath: .status.installedProfile
+      name: Installed
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: 'SSHHost is a pool inventory entry: a pre-existing host joinable
+          as a node.'
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              SSHHostSpec defines a pre-existing host reachable over SSH.
+
+              The execMode rule closes a silent posture downgrade: Verified with no
+              trustedSigners would skip the controller-side signature check without any
+              visible signal, leaving only the host shim as a gate.
+            properties:
+              address:
+                description: |-
+                  Address is the IP or DNS name the provider connects to. Immutable: it is
+                  the host's only identity, and repointing a claimed host would run its
+                  leave against a different machine while the joined one keeps running.
+                  Re-IP by deleting and recreating the SSHHost.
+                maxLength: 253
+                minLength: 1
+                type: string
+                x-kubernetes-validations:
+                - message: address is immutable — delete and recreate the SSHHost
+                    to re-address a host
+                  rule: self == oldSelf
+              capacity:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: |-
+                  Capacity the host provides when joined (cpu, memory, optionally
+                  nvidia.com/gpu etc.). Should be uniform within a host class: a class
+                  advertises the per-resource minimum across its hosts, so an undersized
+                  member shrinks the whole class.
+                type: object
+                x-kubernetes-validations:
+                - message: capacity must declare at least cpu and memory
+                  rule: '''cpu'' in self && ''memory'' in self'
+              execMode:
+                default: Raw
+                description: |-
+                  ExecMode selects script execution on this host: Raw (`sudo bash -s`) or
+                  Verified (signed scripts via kpssh-shim, pinned by sshd ForceCommand).
+                  Set Verified only after the host is provisioned for it. Default Raw.
+                enum:
+                - Raw
+                - Verified
+                type: string
+              nodeAddress:
+                description: |-
+                  NodeAddress is the IP the node advertises in-cluster (kubelet --node-ip).
+                  Defaults to Address; set when SSH goes through a different path. Must be
+                  an IP literal — the kubelet's --node-ip does not accept names, and the
+                  zombie guard matches it against Node InternalIPs.
+                  isIP rather than a character-class pattern: `^[0-9a-fA-F:.]+$` admits
+                  "abc", "cafe.beef", "999.999.999.999" and ":::::" — every one of which
+                  passes admission and then surfaces as a kubelet that will not start, or a
+                  zombie guard that silently never matches a Node. Needs k8s >= 1.31 for the
+                  CEL IP library; the chart's kubeVersion floor is set accordingly.
+                maxLength: 45
+                type: string
+                x-kubernetes-validations:
+                - message: nodeAddress must be an IP literal (kubelet --node-ip does
+                    not accept names)
+                  rule: isIP(self)
+              port:
+                default: 22
+                description: Port is the SSH port.
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              shimCommand:
+                description: |-
+                  ShimCommand overrides the verified-exec shim path invoked over SSH
+                  (default /opt/kpssh/kpssh-shim). A ForceCommand-locked host ignores it.
+                maxLength: 1024
+                type: string
+              sshKeySecretRef:
+                description: |-
+                  SSHKeySecretRef references a Secret (same namespace) with keys
+                  "privateKey" (required, PEM) and optional "knownHost".
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: sshKeySecretRef.name must not be empty
+                  rule: self.name != ''
+              trustedSigners:
+                description: |-
+                  TrustedSigners are OpenSSH public-key lines (allowed_signers key column)
+                  the controller verifies profile signatures against before connecting —
+                  defense in depth and fail-fast; the host shim re-verifies independently.
+                  Required (non-empty) when execMode is Verified.
+                items:
+                  type: string
+                maxItems: 16
+                type: array
+              user:
+                default: root
+                description: User must be able to run the profile scripts via sudo.
+                maxLength: 32
+                type: string
+            required:
+            - address
+            - capacity
+            - sshKeySecretRef
+            type: object
+            x-kubernetes-validations:
+            - message: execMode Verified requires at least one trustedSigners entry
+              rule: '!has(self.execMode) || self.execMode != ''Verified'' || (has(self.trustedSigners)
+                && size(self.trustedSigners) > 0)'
+          status:
+            description: SSHHostStatus is the observed state of the host.
+            properties:
+              bootstrapTokenID:
+                description: |-
+                  BootstrapTokenID is the id of the kubelet TLS-bootstrap token minted for
+                  the in-flight join. The probe controller deletes the token's Secret once
+                  the node has registered (the kubelet holds a real client certificate by
+                  then) and clears this field; the release path deletes it if the join
+                  never got that far. Without this, expired token Secrets accumulate in
+                  kube-system forever — kube-controller-manager's tokencleaner is disabled
+                  by default upstream.
+                maxLength: 6
+                type: string
+              claimRef:
+                description: |-
+                  ClaimRef points to the NodeClaim currently holding this host.
+                  Setting it is the claim lock (optimistic concurrency).
+                properties:
+                  name:
+                    description: Name of the NodeClaim (cluster-scoped).
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                  uid:
+                    description: UID of the NodeClaim at claim time.
+                    type: string
+                required:
+                - name
+                type: object
+              conditions:
+                description: |-
+                  Conditions holds the host's observations. "Ready" is true while the probe
+                  can reach the host and it is not parked Unhealthy or in Maintenance,
+                  which makes `kubectl wait --for=condition=Ready sshhost/<name>` work and
+                  matches every other kind in the karpenter ecosystem.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              hostKeyFingerprint:
+                description: HostKeyFingerprint is TOFU-pinned on first contact unless
+                  pre-seeded.
+                type: string
+              installedProfile:
+                description: InstalledProfile records "<profile>@<version>" after
+                  a successful install.
+                type: string
+              lastProbeError:
+                description: LastProbeError is the last probe failure ("" once healthy
+                  again).
+                type: string
+              lastProbeTime:
+                description: LastProbeTime is when the probe last ran against this
+                  host.
+                format: date-time
+                type: string
+              observedArch:
+                description: 'ObservedArch as probed (uname -m normalized: amd64/arm64).'
+                type: string
+              observedCapacity:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: |-
+                  ObservedCapacity as probed (nproc, MemTotal). When it falls short of
+                  spec.capacity, the probe controller emits a CapacityDrift warning event.
+                type: object
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the spec generation last acted on by the probe;
+                  a spec change bypasses the probe-interval backoff.
+                format: int64
+                type: integer
+              providerID:
+                description: |-
+                  ProviderID is the providerID of the node this host currently backs —
+                  kpssh://… in static mode, or the adopted external form (e.g.
+                  eks-hybrid:///…). Lookup key for Delete/Get.
+                type: string
+              state:
+                description: |-
+                  State is the host's lifecycle state (see HostState). This is the field
+                  the claim lock compare-and-swaps on; treat it as authoritative, and the
+                  Ready condition below as the human-readable observation of the same
+                  probe. (Conditions make a poor distributed lock, so State stays.)
+                enum:
+                - Pending
+                - Available
+                - Claimed
+                - InUse
+                - Unhealthy
+                - Leaving
+                - Maintenance
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

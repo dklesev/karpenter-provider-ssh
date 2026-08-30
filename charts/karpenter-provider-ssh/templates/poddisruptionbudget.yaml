@@ -1,0 +1,21 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- if kindIs "string" .Values.podDisruptionBudget.minAvailable }}
+{{- fail "podDisruptionBudget.minAvailable must be an integer: a percentage would bypass the drain-safety check below (int \"50%\" coerces to 0), and 50% of a single replica still rounds up to a PDB at its floor." }}
+{{- end }}
+{{- if le (int .Values.replicas) (int .Values.podDisruptionBudget.minAvailable) }}
+{{- fail (printf "podDisruptionBudget.minAvailable (%d) must be below replicas (%d): a PDB already at its floor permanently blocks draining the node running this pod, and the eviction is refused with nothing pointing back at the chart. Raise replicas above %d, or leave podDisruptionBudget.enabled=false (the default; over a single replica a PDB protects nothing anyway)."
+    (int .Values.podDisruptionBudget.minAvailable) (int .Values.replicas) (int .Values.podDisruptionBudget.minAvailable)) }}
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "karpenter-provider-ssh.selectorLabels" . | nindent 6 }}
+{{- end }}

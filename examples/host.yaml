@@ -1,0 +1,19 @@
+# SSHHost — one inventory entry per pre-existing host. The class label groups
+# hosts into karpenter instance types; capacity must be uniform per class.
+apiVersion: karpenter.dklesev.github.io/v1beta1
+kind: SSHHost
+metadata:
+  name: host-example
+  namespace: kpssh-system
+  labels:
+    karpenter.dklesev.github.io/host-class: small
+spec:
+  address: 10.0.0.21         # SSH target — immutable; re-IP by delete + recreate
+  port: 22
+  user: root                 # needs passwordless sudo if not root
+  # nodeAddress: 10.0.0.21   # IP literal (kubelet --node-ip); set when the node
+                             # IP differs from the SSH path
+  sshKeySecretRef: {name: pool-ssh-key}   # Secret key: privateKey (PEM)
+  capacity:                  # cpu and memory are required; uniform per class
+    cpu: "2"
+    memory: 4Gi

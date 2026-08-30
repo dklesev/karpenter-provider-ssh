@@ -1,0 +1,32 @@
+karpenter-provider-ssh
+Copyright The karpenter-provider-ssh Authors.
+
+This product includes software developed at
+The Kubernetes Authors (https://kubernetes.io/).
+
+--------------------------------------------------------------------------------
+This distribution bundles sigs.k8s.io/karpenter ("karpenter core"), which is
+compiled into the controller binary and whose CRDs are redistributed verbatim
+under config/karpenter/. It is licensed under the Apache License, Version 2.0.
+Its NOTICE file is reproduced below, as required by section 4(d) of that
+license.
+--------------------------------------------------------------------------------
+
+When donating the karpenter-core project to the CNCF, not all contributors were reached
+to sign the CNCF CLA prior to donation. As such, according to the CNCF rules to donate a repository,
+we must add a NOTICE referencing section 7 of the CLA with a list of developers who could not be reached.
+
+`7. Should You wish to submit work that is not Your original creation, You may
+submit it to the Foundation separately from any Contribution, identifying the
+complete details of its source and of any license or other restriction
+(including, but not limited to, related patents, trademarks, and license
+agreements) of which you are personally aware, and conspicuously marking the
+work as "Submitted on behalf of a third-party: [named here]".`
+
+Submitted on behalf of a third-party: @sergkondr
+Submitted on behalf of a third-party: @abeer-stripe
+Submitted on behalf of a third-party: @shikai93
+Submitted on behalf of a third-party: @lucass4
+Submitted on behalf of a third-party: @wkaczynski
+Submitted on behalf of a third-party: @spring1843
+Submitted on behalf of a third-party: @splichy

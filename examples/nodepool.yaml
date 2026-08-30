@@ -1,0 +1,27 @@
+# Karpenter NodePool over the SSH host pool. Limits should reflect the real
+# pool capacity — karpenter treats them as a provisioning ceiling.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: pool
+spec:
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 60s
+  template:
+    metadata:
+      labels:
+        karpenter.dklesev.github.io/managed: "true"
+    spec:
+      nodeClassRef:
+        group: karpenter.dklesev.github.io
+        kind: SSHNodeClass
+        name: pool
+      expireAfter: Never          # hosts are long-lived; no forced node rotation
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+  limits:
+    cpu: "8"
+    memory: 12Gi

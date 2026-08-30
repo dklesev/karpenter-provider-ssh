@@ -1,0 +1,68 @@
+name: PR title
+
+# PRs squash-merge, so the PR title becomes the commit subject on main — and
+# that subject is the only input release-please has. A title that is not a
+# conventional commit lands the change in no changelog section, bumps no
+# version, and never refreshes the release PR, which means it also never
+# re-triggers the release gate (see release.yaml). Enforce the format where it
+# is authored rather than discovering it after the merge.
+#
+# pull_request_target so the check also reports on fork PRs: a plain
+# pull_request token is read-only there. Safe — there is no checkout and no PR
+# code runs; the action reads the title straight out of the event payload.
+#
+# Do NOT add this to the required checks on main: like ci.yaml it never fires
+# for the release PR (GITHUB_TOKEN pushes are recursion-guarded), and unlike
+# ci.yaml the gate does not dispatch it — there would be nothing to validate
+# anyway, since release-please writes that title itself.
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Conventional Commit title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read # read the PR title; the job never writes
+    steps:
+      - name: Validate title
+        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          # Mirrors release-please-config.json's changelog-sections: a type
+          # release-please does not know is a type whose release behaviour
+          # nobody has decided. `revert` is release-please built-in.
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            build
+            style
+            docs
+            deps
+            test
+            ci
+            chore
+            revert
+          requireScope: false
+          # House style: the description is a lowercase phrase. "Bump …" is
+          # allowed because dependabot's subject is not configurable, and a
+          # rule that fails every dependabot PR forever is a rule against the
+          # robot, not for the changelog.
+          subjectPattern: ^(Bump .+|(?![A-Z]).+)$
+          subjectPatternError: >-
+            The subject "{subject}" of PR title "{title}" must start with a
+            lowercase character (house style; dependabot's "Bump …" is the
+            one exception).

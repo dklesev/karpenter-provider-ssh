@@ -1,0 +1,13 @@
+# The build stage does `COPY . .` — everything the Go build does not need stays
+# out of the context (smaller uploads, and no doc/chart churn busting the layer
+# cache on every image build).
+.git
+.github
+.cache
+bin
+site
+docs
+charts
+test
+examples
+*.md

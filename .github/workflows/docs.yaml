@@ -1,0 +1,73 @@
+name: Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - zensical.toml
+      # The generator pin (ZENSICAL_VERSION) lives here — bumping it must
+      # rebuild the site even when no page changed.
+      - Makefile
+      - .github/workflows/docs.yaml
+  workflow_dispatch:
+
+# Least privilege at the top; the deploy job below re-grants itself the
+# pages/id-token writes it actually needs. Scorecard's Token-Permissions check
+# flags top-level write scopes, and every other workflow here is read-only.
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # GitHub Pages only serves public repositories on the free plan, so this
+    # skips until the repository goes public and Pages is switched on
+    # (Settings -> Pages -> Source: GitHub Actions).
+    if: ${{ !github.event.repository.private }}
+    permissions:
+      contents: read
+      pages: write # deploy-pages: publish the artifact
+      id-token: write # deploy-pages: OIDC to prove the artifact's origin
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.x"
+
+      - name: Install zensical
+        # Pinned: this is the site generator, and an unpinned install means
+        # the published docs can change without a commit. Bump deliberately —
+        # there is no requirements.txt for dependabot to track.
+        # Version pinned in the Makefile so `make docs` locally and this job
+        # build with the same generator (see the Makefile header).
+        run: |
+          v=$(make -s print-zensical-version)
+          pip install "zensical==${v}"
+
+      - name: Build site
+        run: zensical build --clean
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

@@ -1,0 +1,31 @@
+karpenter-provider-ssh {{ .Chart.AppVersion }} installed as {{ include "karpenter-provider-ssh.fullname" . }} in {{ .Release.Namespace }}.
+
+Pool namespace: {{ include "karpenter-provider-ssh.poolNamespace" . }}
+
+The controller embeds karpenter core — no separate karpenter install is needed
+for pools it owns.
+
+Next steps (docs/installation.md walks through all of this):
+
+  1. karpenter.sh CRDs (NodePool/NodeClaim/NodeOverlay) — NOT shipped by this
+     chart. Greenfield cluster: install once from the pinned module
+     (make install, or kubectl apply -f config/karpenter/). Cluster with an
+     existing karpenter: skip, the CRDs are already owned.
+
+  2. SSH key for the pool:
+       kubectl -n {{ include "karpenter-provider-ssh.poolNamespace" . }} create secret generic pool-ssh-key \
+         --from-file=privateKey=<path-to-key>
+
+  3. Inventory + classes (see examples/):
+       SSHJoinProfile  — join mechanism (tls-bootstrap, nodeadm-ssm, …)
+       SSHHost         — one per pool host
+       SSHNodeClass    — host selector + profile + pricePerCPUHour
+       NodePool        — karpenter pool referencing the SSHNodeClass
+
+  4. Watch it work:
+       kubectl -n {{ include "karpenter-provider-ssh.poolNamespace" . }} get sshhosts
+       kubectl get nodeclaims -w
+
+If SSHHosts stay Unhealthy with dial timeouts, the controller cannot reach
+them over SSH — schedule it (nodeSelector/tolerations) somewhere with that
+reach.

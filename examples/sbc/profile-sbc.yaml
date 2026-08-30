@@ -1,0 +1,222 @@
+# Join profile for single-board computers on a Debian-family image (Raspberry
+# Pi OS, Armbian, Ubuntu Server for Pi) — tls-bootstrap plus what such boards
+# need. Verified on a Raspberry Pi 4 Model B (4 GB, Raspberry Pi OS trixie,
+# arm64) joining a kind 1.36 control plane over Cilium — see docs/sbc.md.
+#
+# Differences from profile-tls-bootstrap.yaml, all in `install` unless noted:
+#   - refuses to run without the memory cgroup controller: Raspberry Pi OS
+#     boots with it OFF, and turning it on is a cmdline.txt edit + reboot —
+#     image-time work (prep-host.sh / cloud-init.yaml), not a join's job
+#   - apt is skipped when kubelet already matches k8sMinor, so a pre-baked
+#     board installs in seconds; a blank one downloads once (SD card + Wi-Fi
+#     is the slow part of a cold join)
+#   - keeps the distro's containerd but repoints Debian's CNI bin_dir
+#     (/usr/lib/cni) at /opt/cni/bin, where kubernetes-cni and every CNI
+#     DaemonSet (cilium, flannel, …) put their plugins
+#   - (join) passes --node-ip only for an IP literal
+#   - (join) the kubelet drop-in is 90-kpssh.conf: an installed kubeadm ships
+#     10-kubeadm.conf with its own ExecStart=, and drop-ins apply in filename
+#     order across /usr/lib and /etc — ours has to sort after it
+#   - (leave) also deletes cilium's devices — except the WireGuard one, see
+#     the comment there
+# Vars (SSHNodeClass.spec.vars): k8sMinor (required), clusterDNS
+# (default 10.96.0.10), serverTLSBootstrap (default "false").
+apiVersion: karpenter.dklesev.github.io/v1beta1
+kind: SSHJoinProfile
+metadata:
+  name: sbc
+spec:
+  version: "1"
+  scripts:
+    install: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      K8S_MINOR="${KPSSH_VAR_k8sMinor:?k8sMinor var required}"
+
+      # kubelet and runc need the memory controller; Raspberry Pi OS boots
+      # without it. Fail loudly — the fix needs a reboot, not a script.
+      if ! grep -qw memory /sys/fs/cgroup/cgroup.controllers 2>/dev/null; then
+        echo "kpssh install: memory cgroup controller is off — run examples/sbc/prep-host.sh (cgroup_enable=memory + reboot) first" >&2
+        exit 1
+      fi
+
+      mkdir -p /var/lib/kpssh
+
+      cat > /etc/modules-load.d/k8s.conf <<EOF
+      overlay
+      br_netfilter
+      EOF
+      modprobe overlay || true
+      modprobe br_netfilter || true
+      cat > /etc/sysctl.d/99-k8s.conf <<EOF
+      net.bridge.bridge-nf-call-iptables  = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward                 = 1
+      EOF
+      sysctl --system >/dev/null
+
+      # Swapping onto an SD card is worse than the OOM killer; the kubelet
+      # config in join tolerates swap (failSwapOn: false) but we turn it off.
+      systemctl disable --now dphys-swapfile 2>/dev/null || true
+      swapoff -a 2>/dev/null || true
+
+      # Packages: containerd + tools from the distro, kubelet + CNI plugins
+      # from pkgs.k8s.io — only when missing or on the wrong minor.
+      have=$(kubelet --version 2>/dev/null | sed -nE 's/^Kubernetes v([0-9]+\.[0-9]+)\..*/\1/p' || true)
+      if [ "${have}" != "${K8S_MINOR}" ] || ! command -v containerd >/dev/null; then
+        apt-get update -q
+        apt-get install -y -q containerd conntrack socat ebtables ethtool curl gpg
+        mkdir -p /etc/apt/keyrings
+        curl -fsSL "https://pkgs.k8s.io/core:/stable:/v${K8S_MINOR}/deb/Release.key" \
+          | gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${K8S_MINOR}/deb/ /" \
+          > /etc/apt/sources.list.d/kubernetes.list
+        apt-get update -q
+        apt-mark unhold kubelet 2>/dev/null || true
+        apt-get install -y -q --allow-downgrades kubelet kubernetes-cni
+        apt-mark hold kubelet
+      fi
+
+      # containerd: this install owns the config. systemd cgroups, and
+      # Debian's CNI bin_dir (/usr/lib/cni) → /opt/cni/bin.
+      mkdir -p /etc/containerd
+      containerd config default > /etc/containerd/config.toml
+      sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+      sed -i 's#bin_dir = "/usr/lib/cni"#bin_dir = "/opt/cni/bin"#' /etc/containerd/config.toml
+      systemctl enable --now containerd
+      systemctl restart containerd
+      systemctl disable --now kubelet || true
+
+      touch /var/lib/kpssh/installed
+      echo "kpssh install: OK"
+
+    join: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+      : "${KPSSH_CLUSTER_ENDPOINT:?}" "${KPSSH_CLUSTER_CA_B64:?}" "${KPSSH_BOOTSTRAP_TOKEN:?}" "${KPSSH_NODE_NAME:?}"
+      CLUSTER_DNS="${KPSSH_VAR_clusterDNS:-10.96.0.10}"
+      SERVER_TLS="${KPSSH_VAR_serverTLSBootstrap:-false}"
+
+      systemctl stop kubelet 2>/dev/null || true
+      rm -f /etc/kubernetes/kubelet.conf /etc/kubernetes/bootstrap-kubelet.conf
+      rm -rf /var/lib/kubelet/pki
+
+      mkdir -p /etc/kubernetes/pki /etc/kubernetes/manifests /var/lib/kpssh
+      echo "${KPSSH_CLUSTER_CA_B64}" | base64 -d > /etc/kubernetes/pki/ca.crt
+
+      cat > /etc/kubernetes/bootstrap-kubelet.conf <<EOF
+      apiVersion: v1
+      kind: Config
+      clusters:
+      - cluster:
+          certificate-authority: /etc/kubernetes/pki/ca.crt
+          server: ${KPSSH_CLUSTER_ENDPOINT}
+        name: default
+      contexts:
+      - context: {cluster: default, user: bootstrap}
+        name: bootstrap
+      current-context: bootstrap
+      users:
+      - name: bootstrap
+        user:
+          token: ${KPSSH_BOOTSTRAP_TOKEN}
+      EOF
+      chmod 600 /etc/kubernetes/bootstrap-kubelet.conf
+
+      cat > /etc/kubernetes/kubelet-config.yaml <<EOF
+      apiVersion: kubelet.config.k8s.io/v1beta1
+      kind: KubeletConfiguration
+      authentication:
+        anonymous: {enabled: false}
+        webhook: {enabled: true}
+        x509: {clientCAFile: /etc/kubernetes/pki/ca.crt}
+      authorization: {mode: Webhook}
+      cgroupDriver: systemd
+      clusterDNS: ["${CLUSTER_DNS}"]
+      clusterDomain: cluster.local
+      containerRuntimeEndpoint: unix:///run/containerd/containerd.sock
+      rotateCertificates: true
+      serverTLSBootstrap: ${SERVER_TLS}
+      staticPodPath: /etc/kubernetes/manifests
+      failSwapOn: false
+      EOF
+      if [ -f /run/systemd/resolve/resolv.conf ]; then
+        echo 'resolvConf: /run/systemd/resolve/resolv.conf' >> /etc/kubernetes/kubelet-config.yaml
+      fi
+
+      EXTRA_ARGS="--hostname-override=${KPSSH_NODE_NAME}"
+      # --node-ip takes IP literals only. A host addressed by DNS name gets
+      # kubelet's own detection (and should set spec.nodeAddress — api.md).
+      case "${KPSSH_NODE_ADDRESS:-}" in
+        "" | *[!0-9a-fA-F.:]*) ;;
+        *) EXTRA_ARGS="${EXTRA_ARGS} --node-ip=${KPSSH_NODE_ADDRESS}" ;;
+      esac
+      [ -n "${KPSSH_PROVIDER_ID:-}" ] && EXTRA_ARGS="${EXTRA_ARGS} --provider-id=${KPSSH_PROVIDER_ID}"
+      [ -n "${KPSSH_NODE_LABELS:-}" ] && EXTRA_ARGS="${EXTRA_ARGS} --node-labels=${KPSSH_NODE_LABELS}"
+      [ -n "${KPSSH_TAINTS:-}" ] && EXTRA_ARGS="${EXTRA_ARGS} --register-with-taints=${KPSSH_TAINTS}"
+
+      # 90-: must sort after the kubeadm package's 10-kubeadm.conf, or its
+      # ExecStart= wins and kubelet starts with kubeadm's (absent) config.
+      mkdir -p /etc/systemd/system/kubelet.service.d
+      rm -f /etc/systemd/system/kubelet.service.d/10-kpssh.conf
+      cat > /etc/systemd/system/kubelet.service.d/90-kpssh.conf <<EOF
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/kubelet --config=/etc/kubernetes/kubelet-config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf ${EXTRA_ARGS}
+      EOF
+
+      systemctl daemon-reload
+      systemctl enable --now containerd
+      systemctl enable --now kubelet
+      systemctl restart kubelet
+
+      for _ in $(seq 1 60); do
+        [ -s /etc/kubernetes/kubelet.conf ] && { echo "kpssh join: OK"; exit 0; }
+        sleep 2
+      done
+      echo "kpssh join: TLS bootstrap did not complete" >&2
+      journalctl -u kubelet --no-pager -n 50 >&2 || true
+      exit 1
+
+    leave: |
+      #!/usr/bin/env bash
+      # Disable, not just stop, both units: a rebooted warm-pool board must
+      # stay out of the cluster until the next claim. join re-enables them.
+      # Binaries and pulled images stay — that is the warm pool.
+      set -euxo pipefail
+      systemctl disable --now kubelet 2>/dev/null || true
+
+      systemctl disable --now containerd 2>/dev/null || true
+      pkill -9 -f containerd-shim 2>/dev/null || true
+      sleep 1
+
+      awk '$2 ~ /^\/var\/lib\/kubelet/ {print $2}' /proc/mounts | sort -r | xargs -r -n1 umount -f 2>/dev/null || true
+
+      rm -f /etc/kubernetes/kubelet.conf /etc/kubernetes/bootstrap-kubelet.conf
+      rm -rf /var/lib/kubelet/pki /var/lib/kubelet/pods
+      rm -rf /etc/cni/net.d/*
+
+      # cilium_wg0 is deliberately NOT in this list: with Cilium node
+      # encryption the controller's own SSH session rides that tunnel while
+      # the board is a member — deleting the device here cuts the session
+      # and the phase is reported failed. The agent reuses it on rejoin, and
+      # a reboot clears it.
+      for dev in kube-bridge kube-dummy-if cni0 flannel.1 cilium_host cilium_net cilium_vxlan; do
+        ip link del "$dev" 2>/dev/null || true
+      done
+
+      echo "kpssh leave: OK (units disabled — reboot-safe)"
+
+    uninstall: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+      systemctl disable --now kubelet 2>/dev/null || true
+      apt-mark unhold kubelet || true
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get purge -y -q kubelet kubernetes-cni || true
+      rm -rf /etc/kubernetes /var/lib/kubelet /etc/cni /opt/cni /var/lib/kpssh
+      rm -f /etc/systemd/system/kubelet.service.d/90-kpssh.conf /etc/systemd/system/kubelet.service.d/10-kpssh.conf
+      rm -f /etc/apt/sources.list.d/kubernetes.list
+      systemctl daemon-reload
+      echo "kpssh uninstall: OK"

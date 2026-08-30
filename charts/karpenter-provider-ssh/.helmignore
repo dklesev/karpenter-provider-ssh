@@ -1,0 +1,8 @@
+# Patterns to ignore when building packages.
+*.tgz
+.DS_Store
+.git/
+*.swp
+*.orig
+# helm-docs source for README.md — the rendered README ships, the template does not.
+README.md.gotmpl

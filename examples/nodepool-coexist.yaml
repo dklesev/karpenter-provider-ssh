@@ -1,0 +1,45 @@
+# NodePool for clusters where ANOTHER karpenter (e.g. AWS) already runs.
+# Isolation is deterministic in both directions:
+#  - taint: generic pods don't tolerate it → our provisioner ignores them and
+#    nothing schedules onto pool nodes accidentally
+#  - consumers pin: nodeSelector karpenter.sh/nodepool=<this name> (a label
+#    only THIS NodePool can produce) + matching toleration
+# Both karpenters ignore each other's NodePools/NodeClaims via the core
+# IsManaged(nodeClassRef) filter — the official multi-provider pattern.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: ssh-pool
+spec:
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 60s
+  template:
+    metadata:
+      labels:
+        karpenter.dklesev.github.io/managed: "true"
+    spec:
+      nodeClassRef:
+        group: karpenter.dklesev.github.io
+        kind: SSHNodeClass
+        name: pool
+      expireAfter: Never
+      taints:
+        - key: karpenter.dklesev.github.io/pool
+          effect: NoSchedule
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+  limits:
+    cpu: "4"
+    memory: 8Gi
+---
+# Example consumer pod shape:
+# spec:
+#   nodeSelector:
+#     karpenter.sh/nodepool: ssh-pool
+#   tolerations:
+#     - key: karpenter.dklesev.github.io/pool
+#       operator: Exists
+#       effect: NoSchedule

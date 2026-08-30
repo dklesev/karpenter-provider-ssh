@@ -1,0 +1,36 @@
+# NodePool over the boards. Tainted: nothing lands on a board unless it asks
+# to (workload.yaml shows the toleration + nodeSelector), so cluster add-ons
+# stay on the control plane's nodes and the boards leave cleanly when idle.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: edge
+spec:
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    # Boards pull images slowly (SD card, Wi-Fi) — do not flap. 60s is fine
+    # for a lab where you watch the join/leave loop.
+    consolidateAfter: 5m
+  template:
+    metadata:
+      labels:
+        karpenter.dklesev.github.io/managed: "true"   # keeps the controller off pool nodes
+    spec:
+      nodeClassRef:
+        group: karpenter.dklesev.github.io
+        kind: SSHNodeClass
+        name: sbc
+      expireAfter: Never          # boards are long-lived; no forced rotation
+      taints:
+        - key: karpenter.dklesev.github.io/pool
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["arm64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+  limits:                         # the real pool: two Pi 4s
+    cpu: "8"
+    memory: 7Gi

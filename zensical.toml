@@ -1,0 +1,84 @@
+[project]
+site_name = "karpenter-provider-ssh"
+site_description = "Karpenter provider that autoscales cluster membership of pre-existing SSH-reachable hosts — for fleets where SSH is all you get. Generic over any TLS-bootstrap-capable control plane, first-class EKS Hybrid Nodes support."
+site_author = "Dimitrij Klesev"
+site_url = "https://dklesev.github.io/karpenter-provider-ssh/"
+repo_url = "https://github.com/dklesev/karpenter-provider-ssh"
+repo_name = "dklesev/karpenter-provider-ssh"
+copyright = """
+Copyright &copy; 2026 Dimitrij Klesev &middot; Apache-2.0
+"""
+
+nav = [
+  { "Home" = "index.md" },
+  { "Concepts" = "concepts.md" },
+  { "FAQ" = "faq.md" },
+  { "Architecture" = "architecture.md" },
+  { "Installation" = "installation.md" },
+  { "API reference" = "api.md" },
+  { "Join profiles" = "join-profiles.md" },
+  { "Coexistence" = "coexistence.md" },
+  { "SBC fleets (Raspberry Pi)" = "sbc.md" },
+  { "Security" = "security.md" },
+  { "Verified execution" = "verified-exec.md" },
+  { "Operations" = "operations.md" },
+  { "Development" = "development.md" },
+  { "Troubleshooting" = "troubleshooting.md" },
+  { "Design decisions" = [
+      { "Overview" = "adr/README.md" },
+      { "0001 — SSH as the transport" = "adr/0001-ssh-as-the-transport.md" },
+      { "0002 — API group and naming" = "adr/0002-api-group-and-naming.md" },
+  ] },
+]
+
+# Click-to-enlarge for mermaid diagrams (inline SVG — glightbox only wraps
+# <img>, which the extension below handles).
+extra_css = ["assets/stylesheets/zoom.css"]
+extra_javascript = ["assets/javascript/zoom.js"]
+
+[project.theme]
+favicon = "assets/logo.svg"
+language = "en"
+
+features = [
+  "content.code.annotate",
+  "content.code.copy",
+  "content.footnote.tooltips",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[project.theme.icon]
+logo = "lucide/terminal"
+
+[[project.theme.palette]]
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+# Mermaid diagrams in ```mermaid fences (docs use them heavily).
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+
+# Click-to-enlarge for images. Mermaid diagrams (inline SVG) are handled by
+# assets/javascript/zoom.js — glightbox only wraps <img>.
+[project.markdown_extensions.zensical.extensions.glightbox]
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/dklesev/karpenter-provider-ssh"

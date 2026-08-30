@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="karpenter-provider-ssh">
+  <!-- hexagon: the kubernetes node shape -->
+  <polygon points="50,6 88,28 88,72 50,94 12,72 12,28"
+           fill="none" stroke="#274bb0" stroke-width="6"
+           stroke-linejoin="round"/>
+  <!-- ssh prompt: chevron + cursor -->
+  <polyline points="32,36 50,50 32,64"
+            fill="none" stroke="#1d6e5e" stroke-width="9"
+            stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="56" y1="64" x2="72" y2="64"
+        stroke="#b35a00" stroke-width="9" stroke-linecap="round"/>
+</svg>

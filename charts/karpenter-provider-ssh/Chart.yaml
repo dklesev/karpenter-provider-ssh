@@ -1,0 +1,48 @@
+apiVersion: v2
+name: karpenter-provider-ssh
+description: >-
+  Karpenter provider that autoscales cluster membership of pre-existing
+  SSH-reachable hosts — for fleets where SSH is all you get. Generic over any
+  TLS-bootstrap-capable control plane, with first-class EKS Hybrid Nodes
+  support. Karpenter core is compiled in — this chart is the only controller
+  you deploy.
+type: application
+version: 1.0.0 # x-release-please-version
+appVersion: 1.0.0 # x-release-please-version
+# 1.31 is the floor because spec.nodeAddress validates with CEL isIP(), which
+# needs the 1.31 IP library. Nothing is lost: 1.29 went upstream-EOL in Feb
+# 2025 and even EKS extended support for it ended Mar 2026.
+kubeVersion: ">=1.31.0-0"
+home: https://github.com/dklesev/karpenter-provider-ssh
+icon: https://raw.githubusercontent.com/dklesev/karpenter-provider-ssh/main/assets/logo.svg
+sources:
+  - https://github.com/dklesev/karpenter-provider-ssh
+keywords:
+  - karpenter
+  - autoscaler
+  - eks-hybrid-nodes
+  - ssh
+  - bare-metal
+  - warm-pool
+maintainers:
+  - name: dklesev
+    url: https://github.com/dklesev
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/operator: "true"
+  artifacthub.io/images: |
+    - name: controller
+      image: ghcr.io/dklesev/karpenter-provider-ssh:v1.0.0 # x-release-please-version
+  artifacthub.io/crds: |
+    - kind: SSHHost
+      version: v1beta1
+      name: sshhosts.karpenter.dklesev.github.io
+      description: Inventory entry for one pool host (address, key, capacity, class)
+    - kind: SSHNodeClass
+      version: v1beta1
+      name: sshnodeclasses.karpenter.dklesev.github.io
+      description: Karpenter node class binding hosts to a join profile and price
+    - kind: SSHJoinProfile
+      version: v1beta1
+      name: sshjoinprofiles.karpenter.dklesev.github.io
+      description: Idempotent install/join/leave/uninstall scripts for a join mechanism

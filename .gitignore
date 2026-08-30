@@ -1,0 +1,21 @@
+bin/
+.DS_Store
+site/
+.cache/
+cover.out
+coverage.out
+*.test
+dist/
+
+# Artifacts the documented commands drop in the repo root. Without these, a
+# stray `git add -A` after a release rehearsal commits them — the same class of
+# accident that once left a nested copy of the repo tree in git.
+karpenter-provider-ssh-*.tgz
+sbom*.spdx.json
+results.sarif
+
+# Editors
+.idea/
+.vscode/
+__debug_bin*
+tmp/

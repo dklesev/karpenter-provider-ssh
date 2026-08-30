@@ -1,0 +1,169 @@
+#!/bin/sh
+# kpssh-shim — verified-execution entrypoint for karpenter-provider-ssh.
+#
+# Copyright The karpenter-provider-ssh Authors.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#
+# Installed on a pool host and pinned as the login's forced command
+# (run `sshd -t` before reloading — a config typo must not take sshd down):
+#
+#   # /etc/ssh/sshd_config.d/50-kpssh.conf   (or authorized_keys command="...")
+#   Match User kpssh
+#       ForceCommand /opt/kpssh/kpssh-shim
+#       PermitTTY no
+#       AllowTcpForwarding no
+#
+# The environment matters as much as the Match block. The three KPSSH_* knobs
+# below — including ALLOWED_SIGNERS, the trust root itself — are read from the
+# environment so that provisioning and tests can place them. sudo's env_reset
+# scrubs them on the escalating path, but a host whose SSHHost sets
+# `user: root` never escalates and would inherit whatever sshd passed in. Let
+# the client set the environment and it picks its own trust root; then the
+# signature gate checks a key the attacker holds. sshd's defaults already
+# refuse client environment (no AcceptEnv, PermitUserEnvironment no) — verify
+# with `sshd -T` that nothing re-enabled them; neither can be pinned inside a
+# Match block.
+#
+#   # /etc/sudoers.d/kpssh   (login user escalates to exactly this one binary)
+#   kpssh ALL=(root) NOPASSWD: /opt/kpssh/kpssh-shim
+#
+# It reads a base64-framed envelope on stdin (see internal/sshexec envelope.go),
+# verifies the phase script's SSHSIG against a pinned signer with stock
+# `ssh-keygen -Y verify`, and only then runs it as root. The client's requested
+# command is ignored; the operation comes from the envelope. Read-only `probe`
+# is built in and needs no signature — everything mutating must be signed.
+#
+# Exit codes: 0 ok · 2 signature rejected · 3 bad param · 4 malformed envelope
+#             · 5 unknown phase · 10 script failed (its real exit code is
+#             logged) · 1 internal error.
+set -eu
+
+ALLOWED_SIGNERS="${KPSSH_ALLOWED_SIGNERS:-/etc/kpssh/allowed_signers}"
+NAMESPACE="${KPSSH_NAMESPACE:-kpssh}"
+PRINCIPAL="${KPSSH_PRINCIPAL:-kpssh}"
+
+log() { printf 'kpssh-shim: %s\n' "$1" >&2; }
+die() { log "$2"; exit "$1"; }
+
+# Escalate to root once, before touching untrusted input, preserving the stdin
+# pipe (sudo passes stdin through). The login user is granted NOPASSWD sudo to
+# exactly this binary — a real, one-entry command allow-list. Disabled in tests
+# via KPSSH_SHIM_SUDO=0 (host-side env; the SSH client cannot set it).
+if [ "${KPSSH_SHIM_SUDO:-1}" = "1" ] && [ "$(id -u)" -ne 0 ]; then
+	exec sudo -n -- "$0" "$@"
+fi
+
+# Pick a base64 decoder once (GNU `-d`, BSD `-D`, or openssl).
+if printf '' | base64 -d >/dev/null 2>&1; then B64D="base64 -d"
+elif printf '' | base64 -D >/dev/null 2>&1; then B64D="base64 -D"
+elif printf '' | openssl base64 -d -A >/dev/null 2>&1; then B64D="openssl base64 -d -A"
+else die 1 "no base64 decoder"; fi
+b64d() { $B64D; }
+
+# Parse the envelope. Fields are single-line base64, order-independent.
+ver="" phase="" params_b64="" sig_b64="" script_b64=""
+while IFS= read -r line || [ -n "$line" ]; do
+	case "$line" in
+		"kpssh-envelope: "*) ver=${line#kpssh-envelope: } ;;
+		"phase: "*)           phase=${line#phase: } ;;
+		"params-b64: "*)      params_b64=${line#params-b64: } ;;
+		"sig-b64: "*)         sig_b64=${line#sig-b64: } ;;
+		"script-b64: "*)      script_b64=${line#script-b64: } ;;
+		*) : ;; # ignore blanks / unknown header lines
+	esac
+done
+
+[ "$ver" = "1" ] || die 4 "unsupported or missing envelope version"
+[ -n "$phase" ] || die 4 "missing phase"
+
+# probe: fixed, read-only facts. No signature — the shim owns these bytes, so
+# the controller cannot vary them. Output contract matches hostprobe.go.
+if [ "$phase" = "probe" ]; then
+	nproc
+	awk '/MemTotal/ {print $2}' /proc/meminfo
+	uname -m
+	systemctl is-active kubelet 2>/dev/null || true
+	exit 0
+fi
+
+case "$phase" in
+	install|join|leave|uninstall) ;;
+	*) die 5 "unknown phase: $phase" ;;
+esac
+
+[ -n "$sig_b64" ] || die 4 "missing signature for phase $phase"
+[ -n "$script_b64" ] || die 4 "missing script for phase $phase"
+
+tmpd=$(mktemp -d "${TMPDIR:-/tmp}/kpssh.XXXXXX") || die 1 "mktemp failed"
+trap 'rm -rf "$tmpd"' EXIT INT TERM
+umask 077
+script="$tmpd/script" sig="$tmpd/sig"
+printf '%s' "$script_b64" | b64d > "$script" 2>/dev/null || die 4 "script decode failed"
+printf '%s' "$sig_b64"    | b64d > "$sig"    2>/dev/null || die 4 "signature decode failed"
+
+# The gate: a valid signature from an authorized signer, over exactly these
+# script bytes, in the kpssh namespace. A compromised controller cannot forge
+# it — the signing key is offline. ssh-keygen's stderr is logged: a missing
+# allowed_signers file or a principal/namespace mismatch fails identically to
+# a real tamper, and without the reason every provisioning mistake reads as an
+# attack. (The caller supplied both script and signature, so echoing the
+# reason back discloses nothing.)
+if ! verify_err=$(ssh-keygen -Y verify -f "$ALLOWED_SIGNERS" -I "$PRINCIPAL" -n "$NAMESPACE" -s "$sig" < "$script" 2>&1 >/dev/null); then
+	[ -z "$verify_err" ] || log "verify: $verify_err"
+	die 2 "signature rejected"
+fi
+
+# Apply params as environment (data, never code). Values are opaque; NAMES are
+# the dangerous half and must match the documented KPSSH_* contract.
+#
+# A bare shell identifier is NOT a safe name. BASH_ENV, ENV, SHELLOPTS+PS4,
+# LD_PRELOAD, PATH and IFS are all valid identifiers, and all of them steer the
+# interpreter rather than the script: bash expands $BASH_ENV — performing
+# command substitution — and sources it before running a non-interactive
+# script, so a caller who can set only params gets arbitrary root while the
+# signature over $script verifies perfectly and the shim exits 0. That would
+# void the whole point of this gate (a compromised controller, or anyone
+# holding the pool SSH key, is meant to reach nothing but signed code).
+# An allow-list is the only durable answer here; a deny-list of interpreter
+# variables is a game you lose on the next bash release.
+if [ -n "$params_b64" ]; then
+	printf '%s' "$params_b64" | b64d > "$tmpd/params" 2>/dev/null || die 4 "params decode failed"
+	while IFS= read -r p || [ -n "$p" ]; do
+		[ -n "$p" ] || continue
+		case "$p" in *=*) ;; *) die 3 "param missing '=': $p" ;; esac
+		k=${p%%=*}
+		# Prefix first, then charset: a trailing '*' in a case pattern matches
+		# anything, so KPSSH_[A-Za-z0-9_]* alone would still admit "KPSSH_x;id".
+		case "$k" in KPSSH_?*) ;; *) die 3 "param name must start with KPSSH_: $k" ;; esac
+		case "$k" in *[!A-Za-z0-9_]*) die 3 "invalid param name: $k" ;; esac
+		# shellcheck disable=SC2163 # $p is a whole NAME=value word; exporting
+		# the word is the intent, not exporting the var named by $p.
+		export "$p"
+	done < "$tmpd/params"
+fi
+
+# Belt and braces for the same class of attack arriving via an INHERITED
+# environment rather than the param channel (sudo's env_reset covers the
+# escalating path, but `user: root` logins and KPSSH_SHIM_SUDO=0 do not).
+# This list is a backstop, not the gate — the allow-list above is the gate,
+# precisely because a deny-list of interpreter variables is unwinnable.
+# `|| :` because SHELLOPTS is readonly when /bin/sh is bash, and `set -e`
+# would treat the failed unset as fatal.
+#
+# PATH is deliberately NOT in this list: the signed script needs one to find
+# any binary, and clearing it here would leave bash's compiled-in default
+# rather than the host's. sudo's secure_path covers the escalating path; the
+# root-login path inherits sshd's PATH, which the client cannot set unless
+# sshd is misconfigured (see the AcceptEnv/PermitUserEnvironment note above).
+unset BASH_ENV ENV BASHOPTS SHELLOPTS PS4 LD_PRELOAD LD_LIBRARY_PATH IFS GLOBIGNORE 2>/dev/null || :
+
+# Map any script failure to exit 10 so it can never masquerade as one of the
+# shim's own codes above — nodeadm, systemctl and curl all exit with small
+# numbers that would otherwise read as "signature rejected" or "bad param".
+bash "$script" || { rc=$?; log "script exited $rc"; exit 10; }

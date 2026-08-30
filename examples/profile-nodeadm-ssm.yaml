@@ -1,0 +1,112 @@
+# EKS Hybrid Nodes join profile (nodeadm + SSM credential provider).
+#
+# Vars (SSHNodeClass.spec.vars):
+#   clusterName  EKS cluster name        (required)
+#   region       AWS region              (required)
+#   k8sVersion   e.g. "1.34"             (required for cold install)
+# Secret (SSHNodeClass.spec.joinSecretRef → KPSSH_SECRET_*):
+#   activationId / activationCode        SSM hybrid activation (cold joins
+#                                        only; managing the Secret is outside
+#                                        the provider's scope)
+#
+# Warm-pool semantics (verified live on a real EKS cluster):
+#   - billing keys on cluster membership (Node object), NOT SSM registration
+#   - warm leave  = disable + stop kubelet and containerd (Node object deletion
+#     is done by karpenter core); disabling keeps a rebooted host out of the
+#     cluster until the next claim
+#   - warm rejoin = enable + start both → same mi-* identity, Ready in seconds,
+#     consumes NO activation registration
+#   - nodeadm init is COLD-ONLY: it re-registers (new mi-*, consumes one
+#     registration, requires a valid activation)
+apiVersion: karpenter.dklesev.github.io/v1beta1
+kind: SSHJoinProfile
+metadata:
+  name: nodeadm-ssm
+spec:
+  version: "1"
+  scripts:
+    install: |
+      #!/usr/bin/env bash
+      # Cold host preparation: fetch nodeadm + install node components.
+      # Idempotent: skips when nodeadm + kubelet are already present.
+      set -euxo pipefail
+      : "${KPSSH_VAR_region:?}" "${KPSSH_VAR_k8sVersion:?}"
+
+      if command -v nodeadm >/dev/null && command -v kubelet >/dev/null; then
+        echo "kpssh install: nodeadm + kubelet present, skipping"
+        exit 0
+      fi
+
+      ARCH=$(uname -m); case "$ARCH" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; esac
+      curl -fsSL "https://hybrid-assets.eks.amazonaws.com/latest/bin/linux/${ARCH}/nodeadm" -o /tmp/nodeadm
+      install -m 0755 /tmp/nodeadm /usr/local/bin/nodeadm
+
+      /usr/local/bin/nodeadm install "${KPSSH_VAR_k8sVersion}" \
+        --credential-provider ssm --region "${KPSSH_VAR_region}"
+      echo "kpssh install: OK"
+
+    join: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+      : "${KPSSH_VAR_clusterName:?}" "${KPSSH_VAR_region:?}"
+
+      # WARM PATH: SSM registration + nodeadm config survive leave — the node
+      # identity (mi-*) is durable. Re-enable and start the runtime + kubelet
+      # (leave disables both so a host reboot cannot rejoin the cluster).
+      if [ -f /var/lib/amazon/ssm/registration ] && [ -f /etc/nodeadm/nodeConfig.yaml ]; then
+        systemctl enable --now containerd
+        systemctl enable --now kubelet
+        echo "kpssh join: warm start OK"
+        exit 0
+      fi
+
+      # COLD PATH: fresh host (or post-uninstall) — needs a valid activation.
+      : "${KPSSH_SECRET_ACTIVATIONID:?cold join requires activationId in joinSecretRef}"
+      : "${KPSSH_SECRET_ACTIVATIONCODE:?cold join requires activationCode in joinSecretRef}"
+
+      mkdir -p /etc/nodeadm
+      cat > /etc/nodeadm/nodeConfig.yaml <<EOF
+      apiVersion: node.eks.aws/v1beta1
+      kind: NodeConfig
+      spec:
+        cluster:
+          name: ${KPSSH_VAR_clusterName}
+          region: ${KPSSH_VAR_region}
+        kubelet:
+          flags:
+            # karpenter core's registration contract: the node must come up
+            # with the unregistered taint (KPSSH_TAINTS always leads with it);
+            # core removes it after syncing labels/taints.
+            - --register-with-taints=${KPSSH_TAINTS}
+        hybrid:
+          ssm:
+            activationId: "${KPSSH_SECRET_ACTIVATIONID}"
+            activationCode: "${KPSSH_SECRET_ACTIVATIONCODE}"
+      EOF
+      chmod 600 /etc/nodeadm/nodeConfig.yaml
+
+      /usr/local/bin/nodeadm init --config-source file:///etc/nodeadm/nodeConfig.yaml
+      echo "kpssh join: cold init OK"
+
+    leave: |
+      #!/usr/bin/env bash
+      # Warm leave: node already drained by karpenter; karpenter deletes the
+      # Node object (= billing stops). Keep SSM agent + registration + certs +
+      # binaries — the durable identity that makes warm rejoin a kubelet start.
+      # DISABLE, not just stop: a rebooted warm host must stay out of the
+      # cluster, or systemd restarts kubelet and the node rejoins (and bills)
+      # silently. Both units — kubelet is the join vector, containerd would
+      # resurrect workload shims.
+      set -euxo pipefail
+      systemctl disable --now kubelet 2>/dev/null || true
+      systemctl disable --now containerd 2>/dev/null || true
+      echo "kpssh leave: OK (SSM registration kept — warm, units disabled)"
+
+    uninstall: |
+      #!/usr/bin/env bash
+      # Full reset (manual/repair only): removes kubelet, certs, SSM
+      # registration, CNI, iptables. Next join is COLD (new mi-*, consumes an
+      # activation registration).
+      set -euxo pipefail
+      /usr/local/bin/nodeadm uninstall || /usr/local/bin/nodeadm uninstall --skip node-validation
+      echo "kpssh uninstall: OK"

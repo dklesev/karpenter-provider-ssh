@@ -1,0 +1,48 @@
+# Demand that only a board can serve. Scale it to 1 and a board joins; back
+# to 0 and consolidation returns it to the pool after consolidateAfter.
+# Every 30 s the pod proves the node is a real cluster member: cluster DNS
+# resolves, the API is reachable through its ClusterIP. Both cross the tunnel
+# to the control plane's nodes — the two things an edge node most often lacks.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-probe
+spec:
+  replicas: 0
+  selector:
+    matchLabels: {app: edge-probe}
+  template:
+    metadata:
+      labels: {app: edge-probe}
+    spec:
+      nodeSelector:
+        karpenter.sh/nodepool: edge
+      tolerations:
+        - key: karpenter.dklesev.github.io/pool
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: probe
+          image: docker.io/library/busybox:1.37
+          env:
+            - name: NODE
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+          command: ["sh", "-c"]
+          args:
+            - |
+              while true; do
+                dns=FAIL; timeout 5 nslookup kubernetes.default.svc.cluster.local >/dev/null 2>&1 && dns=ok
+                api=$(timeout 10 wget -q -T 5 -O- --no-check-certificate https://kubernetes.default.svc/version 2>/dev/null | sed -n 's/.*"gitVersion": *"\([^"]*\)".*/\1/p')
+                echo "$(date -u +%FT%TZ) node=${NODE} dns=${dns} api=${api:-FAIL}"
+                sleep 30
+              done
+          resources:
+            requests: {cpu: 500m, memory: 64Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}

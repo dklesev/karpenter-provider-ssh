@@ -1,0 +1,31 @@
+# kind control plane that boards on your LAN can join. Substitute ${LAN_IP}
+# with the address the boards reach your laptop at (macOS: `ipconfig
+# getifaddr en0`, Linux: `hostname -I | cut -d' ' -f1`).
+#
+# kind's nodes are Docker containers behind NAT: a board can reach your
+# laptop's published ports, never a container IP. Two things follow:
+#   - the API server advertises the laptop address (kubeadm patches below),
+#     so the `kubernetes` ClusterIP's endpoint and kube-public/cluster-info
+#     point somewhere a board — and, via hairpin, kind's own pods — can reach
+#   - pod traffic between kind nodes and boards needs a tunnel that copes with
+#     NAT: cilium-values.yaml (WireGuard). The default CNI and kube-proxy are
+#     off for that reason
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: sbc
+networking:
+  apiServerAddress: "${LAN_IP}"
+  apiServerPort: 6443
+  disableDefaultCNI: true
+  kubeProxyMode: none
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    controlPlaneEndpoint: "${LAN_IP}:6443"
+    apiServer:
+      extraArgs:
+        - name: advertise-address
+          value: "${LAN_IP}"
+nodes:
+  - role: control-plane
+  - role: worker        # the provider, coredns and your add-ons live here; the boards are extra

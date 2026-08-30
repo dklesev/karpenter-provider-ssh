@@ -1,0 +1,25 @@
+# SSHNodeClass for the board pool. Substitute ${K8S_MINOR} with the control
+# plane's minor (`kubectl version`); the kubelet the profile installs must
+# match it.
+#
+# Endpoint and CA come from kube-public/cluster-info, which the kind lab
+# publishes at the laptop address (kind-config.yaml). Set spec.cluster only
+# when cluster-info names something the boards cannot reach — a private
+# name, a container, an EKS endpoint that is not in kube-public:
+#   cluster:
+#     endpoint: "https://<address the boards can reach>:6443"
+#     caBundle: "<base64 cluster CA>"
+apiVersion: karpenter.dklesev.github.io/v1beta1
+kind: SSHNodeClass
+metadata:
+  name: sbc
+spec:
+  joinProfileRef: {name: sbc}
+  providerIDSource: Static
+  # A Pi 4 draws ~5 W: at €0.30/kWh that is about €0.0004 per vCPU-hour.
+  # The price ranks classes against each other and feeds consolidation; any
+  # positive number works, this one is at least honest.
+  pricePerCPUHour: "0.0005"
+  vars:
+    k8sMinor: "${K8S_MINOR}"
+    clusterDNS: "10.96.0.10"

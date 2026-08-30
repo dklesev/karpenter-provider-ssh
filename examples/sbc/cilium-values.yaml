@@ -1,0 +1,43 @@
+# Cilium for a kind control plane that boards join from the LAN.
+#
+# kind's nodes are Docker containers behind Docker Desktop's NAT: a board can
+# reach your laptop's published API port, never a container IP. The API side
+# is solved in kind-config.yaml (the server advertises the laptop address);
+# WireGuard carries what remains:
+#   - pod ⇄ pod across the NAT (coredns answering a board's pod): the kind
+#     side can reach a board and initiates; the board learns the laptop's NAT
+#     endpoint from the handshake, the keepalive holds it. VXLAN cannot do
+#     this — stateless, it would send to the container IP forever
+#   - pod → member-board traffic (the provider's SSH for `leave`): Cilium
+#     never masquerades pod traffic to CLUSTER NODE IPs, so once the board is
+#     a member such packets would leave Docker with a pod source IP and die
+#     in the NAT — nodeEncryption routes them through the tunnel instead.
+#     (Joins are unaffected: the board is not a node yet, counts as `world`,
+#     and gets SNATed.) Cilium's default control-plane opt-out stays: the
+#     API advertises the laptop address, and the control plane's own host
+#     traffic is masqueraded by Docker
+#   - agents talk to the API at the laptop address (k8sServiceHost); kube-proxy
+#     replacement needs that anyway
+#   - the per-node Envoy DaemonSet is off: its tcmalloc needs a 48-bit address
+#     space and the Pi 4 kernel has 39; nothing here needs L7
+# On a control plane the boards can route to (k3s/kubeadm on a real host, a VM
+# with a bridged NIC) none of this is needed — the stock CNI works.
+kubeProxyReplacement: true
+k8sServiceHost: "${LAN_IP}"
+k8sServicePort: 6443
+ipam:
+  mode: kubernetes
+routingMode: native
+ipv4NativeRoutingCIDR: 10.244.0.0/16
+bpf:
+  masquerade: true
+encryption:
+  enabled: true
+  type: wireguard
+  nodeEncryption: true
+  wireguard:
+    persistentKeepalive: 25s
+envoy:
+  enabled: false
+operator:
+  replicas: 1

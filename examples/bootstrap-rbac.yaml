@@ -1,0 +1,50 @@
+# Cluster-side RBAC for the tls-bootstrap profile. The provider mints
+# bootstrap tokens bound to the group system:bootstrappers:kpssh; these
+# bindings let that group perform standard kubelet TLS bootstrapping with
+# auto-approved client certificates.
+#
+# Not needed for nodeadm-ssm (EKS Hybrid) — nodeadm brings its own identity.
+#
+# Kubelet SERVING certs (metrics-server/kubectl top with verified kubelet CA)
+# additionally need a serving-CSR approver, e.g.
+# https://github.com/postfinance/kubelet-csr-approver — see join-profiles.md.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kpssh-node-bootstrapper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:node-bootstrapper
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:bootstrappers:kpssh
+---
+# Auto-approve the initial kubelet client certificate for bootstrapping nodes.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kpssh-auto-approve-csrs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:certificates.k8s.io:certificatesigningrequests:nodeclient
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:bootstrappers:kpssh
+---
+# Auto-approve client certificate RENEWALS for joined nodes.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kpssh-auto-approve-renewals
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:certificates.k8s.io:certificatesigningrequests:selfnodeclient
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:nodes

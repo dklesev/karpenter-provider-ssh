@@ -1,0 +1,162 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 3
+  # Recreate, not RollingUpdate: an old and a new controller must never overlap
+  # — two versions driving the same host state machine (claim CAS, join/leave
+  # SSH phases) would race on the pool.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "karpenter-provider-ssh.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- /*
+        Merged, not concatenated, and with the selector labels winning: a
+        podLabel reusing a selector key would otherwise emit the same YAML key
+        twice, and the pod would stop matching its own Deployment's selector —
+        which is immutable, so the rollout never completes and the fix is a
+        reinstall. merge's first argument wins on conflict.
+      */ -}}
+      {{- $labels := merge (include "karpenter-provider-ssh.selectorLabels" . | fromYaml) (default (dict) .Values.podLabels) }}
+      labels:
+        {{- toYaml $labels | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "karpenter-provider-ssh.serviceAccountName" . }}
+      # the controller talks to the API server on every reconcile — pinned
+      # explicitly so a namespace/cluster default of false cannot break it
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: controller
+          image: {{ include "karpenter-provider-ssh.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{/*
+              Karpenter core defaults LeaderElectionID to the fixed string
+              "karpenter-leader-election" in the pod's own namespace.
+              Coexisting with another karpenter in ONE namespace (upstream's
+              own docs put it in kube-system) would then have both controllers
+              contend for a single Lease, and the loser idles forever — no
+              error, no event, no crash. Scoping the lease to the release name
+              keeps that impossible.
+            */}}
+            - name: LEADER_ELECTION_NAME
+              value: {{ include "karpenter-provider-ssh.fullname" . }}
+            - name: POOL_NAMESPACE
+              value: {{ include "karpenter-provider-ssh.poolNamespace" . }}
+            - name: LOG_LEVEL
+              value: {{ .Values.settings.logLevel }}
+            - name: METRICS_PORT
+              value: {{ .Values.controller.metricsPort | quote }}
+            - name: HEALTH_PROBE_PORT
+              value: {{ .Values.controller.healthProbePort | quote }}
+            {{- with .Values.settings.batchMaxDuration }}
+            - name: BATCH_MAX_DURATION
+              value: {{ . }}
+            {{- end }}
+            {{- with .Values.settings.batchIdleDuration }}
+            - name: BATCH_IDLE_DURATION
+              value: {{ . }}
+            {{- end }}
+            {{/*
+              Karpenter core turns these into runtime behaviour, so the
+              container's resources must actually reach it: MEMORY_LIMIT sets
+              GOMEMLIMIT to 90% of the limit (operator.go — without it the Go
+              heap does not know it is capped, and you get avoidable
+              OOMKills), and CPU_REQUESTS drives the provisioner's
+              concurrent-reconcile count (default 1000m, so raising cpu
+              requests otherwise buys nothing).
+
+              Each is gated on the value EXISTING: a resourceFieldRef to an
+              unset limit silently resolves to the node's allocatable, which
+              would tell the GC it may use the whole machine.
+            */}}
+            {{- if (.Values.controller.resources).limits }}
+            {{- if (.Values.controller.resources).limits.memory }}
+            - name: MEMORY_LIMIT
+              valueFrom:
+                resourceFieldRef:
+                  containerName: controller
+                  resource: limits.memory
+                  divisor: "1"
+            {{- end }}
+            {{- end }}
+            {{- if (.Values.controller.resources).requests }}
+            {{- if (.Values.controller.resources).requests.cpu }}
+            - name: CPU_REQUESTS
+              valueFrom:
+                resourceFieldRef:
+                  containerName: controller
+                  resource: requests.cpu
+                  divisor: 1m
+            {{- end }}
+            {{- end }}
+            {{- with .Values.controller.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http-metrics
+              containerPort: {{ .Values.controller.metricsPort }}
+              protocol: TCP
+            - name: http-probes
+              containerPort: {{ .Values.controller.healthProbePort }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http-probes
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http-probes
+            initialDelaySeconds: 15
+            timeoutSeconds: 5
+          {{- with .Values.controller.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

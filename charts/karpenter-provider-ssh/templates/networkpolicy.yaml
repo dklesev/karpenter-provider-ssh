@@ -1,0 +1,79 @@
+{{- if .Values.networkPolicy.enabled }}
+# Egress allow-list for the controller. This pod holds the pool's SSH private
+# key and mints bootstrap tokens — the point of the policy is that a
+# compromised controller can only reach the API server, DNS and the SSH pool.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "karpenter-provider-ssh.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "karpenter-provider-ssh.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "karpenter-provider-ssh.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Metrics scrape. With networkPolicy.metricsFrom empty this allows any
+    # source (peer-less rule); set it to your Prometheus namespace/pod to
+    # narrow it.
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.controller.metricsPort }}
+      {{- with .Values.networkPolicy.metricsFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    # Liveness/readiness. Kubelet probes come from the node IP (host network),
+    # which no pod/namespace selector can express — this rule is deliberately
+    # NOT narrowed by metricsFrom, or the pod would fail its probes and
+    # CrashLoop. The endpoints are /healthz and /readyz only.
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.controller.healthProbePort }}
+  egress:
+    # DNS. Destination is left open on purpose: CoreDNS, a node-local DNS cache
+    # (node IP) and a host resolver are all valid targets. TCP too — responses
+    # over 512B fall back to it.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # API server. It has no selectable pod identity in the general case (EKS:
+    # an ENI outside the cluster; kubeadm: host-network on the control plane),
+    # so it is expressed by port — traffic to the kubernetes.default ClusterIP
+    # is evaluated against the real endpoint after DNAT.
+    - ports:
+        {{- range .Values.networkPolicy.apiServerPorts }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+      {{- with .Values.networkPolicy.apiServerCIDRs }}
+      to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+    # SSH to the pool hosts. With networkPolicy.sshEgressCIDRs empty this is
+    # any destination on the SSH port; set it to your pool subnets to bound it.
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.sshPort }}
+      {{- with .Values.networkPolicy.sshEgressCIDRs }}
+      to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+    {{- with .Values.networkPolicy.extraEgress }}
+    # user-supplied extra egress (SSM endpoints, package mirrors reached via a
+    # proxy, ...)
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

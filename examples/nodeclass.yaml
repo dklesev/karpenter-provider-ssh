@@ -1,0 +1,20 @@
+# SSHNodeClass — how NodeClaims turn pool hosts into nodes. Substitute:
+#   ${ENDPOINT}     API server URL kubelets connect to
+#   ${CA}           base64 cluster CA (omit spec.cluster entirely when
+#                   kube-public/cluster-info exists — kubeadm-style clusters)
+#   ${K8S_MINOR}    kubelet minor to install (must match the control plane)
+#   ${CLUSTER_DNS}  cluster DNS service IP
+apiVersion: karpenter.dklesev.github.io/v1beta1
+kind: SSHNodeClass
+metadata:
+  name: pool
+spec:
+  joinProfileRef: {name: tls-bootstrap}
+  providerIDSource: Static        # Adopt for EKS nodeadm (node owns identity)
+  pricePerCPUHour: "0.02"         # EKS hybrid attached-vCPU-hour price
+  cluster:
+    endpoint: "${ENDPOINT}"
+    caBundle: "${CA}"
+  vars:
+    k8sMinor: "${K8S_MINOR}"
+    clusterDNS: "${CLUSTER_DNS}"

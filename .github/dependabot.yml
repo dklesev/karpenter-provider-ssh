@@ -1,0 +1,45 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      k8s:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+    # `deps` cuts a patch release: release-please's default versioning strategy
+    # treats deps as patch (alongside feat→minor, fix→patch), so a CVE fix in a
+    # vendored module reaches a user's image on the next release PR.
+    commit-message:
+      prefix: deps
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    # Nine workflows on a weekly schedule is a weekly PR pile otherwise; the
+    # pins move together anyway and are reviewed as one diff.
+    groups:
+      actions:
+        patterns:
+          - "*"
+    # `ci` on purpose: workflow pins ship in no artifact a user consumes, so
+    # bumping one must not cut a release.
+    commit-message:
+      prefix: ci
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      images:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: deps
+  # test/e2e/host-image is intentionally not monitored: its FROM is a
+  # build-arg resolved at runtime to the kind cluster's own node image.

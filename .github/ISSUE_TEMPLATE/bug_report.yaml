@@ -1,0 +1,41 @@
+name: Bug report
+description: Something misbehaves (controller, join/leave, chart)
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Controller image tag / chart version / commit
+      placeholder: v0.x.y / commit sha
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Control plane + pool
+      placeholder: EKS 1.34 hybrid nodes / SKS 1.36 / bare-metal k3s
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the exact error (controller log line, SSHHost status, NodeClaim events)
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: SSHNodeClass/SSHJoinProfile/NodePool (redact endpoints + secrets!)
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Controller logs
+      render: json
