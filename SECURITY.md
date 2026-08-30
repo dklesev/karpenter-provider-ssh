@@ -39,21 +39,21 @@ verifiable end to end:
     --certificate-oidc-issuer https://token.actions.githubusercontent.com
   ```
 
-- **Detached signatures on release files** — every file attached to a GitHub
-  release (the `kpssh-shim`, the SBOM, the packaged chart `.tgz`) ships with a
-  cosign `.sig` + `.pem` beside it, so a downloader can verify the exact file
-  they fetched without trusting a key:
+- **Signed release files** — every file attached to a GitHub release (the
+  `kpssh-shim`, the SBOM, the packaged chart `.tgz`) ships with a cosign
+  Sigstore bundle (`<file>.sigstore.json`) beside it, so a downloader can
+  verify the exact file they fetched without trusting a key:
 
   ```bash
   # shim (installed by hand as root — verify before running)
   cosign verify-blob \
-    --signature kpssh-shim.sig --certificate kpssh-shim.pem \
+    --bundle kpssh-shim.sigstore.json \
     --certificate-identity-regexp 'https://github.com/dklesev/karpenter-provider-ssh/\.github/workflows/release\.yaml@.*' \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     kpssh-shim
 
   # same pattern for sbom-image.spdx.json and karpenter-provider-ssh-X.Y.Z.tgz
-  # (each ships a matching .sig / .pem)
+  # (each ships a matching <file>.sigstore.json bundle)
   ```
 
 - **SLSA provenance + SBOM attestations** (GitHub attestation API, also pushed

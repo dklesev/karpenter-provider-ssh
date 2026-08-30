@@ -147,6 +147,8 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
 
       - name: Build + push (multi-arch, SBOM + provenance embedded)
         id: build
@@ -213,19 +215,17 @@ jobs:
 
       - name: Sign SBOM file (cosign sign-blob, keyless)
         # The attest step above binds the SBOM in GitHub's attestation store;
-        # this drops a detached signature *next to the asset* so a downloader
-        # (and Scorecard's Signed-Releases check) can verify from the release
-        # alone. Keyless: identity is this workflow's OIDC token, logged in
-        # Rekor — no key to store. Verify:
-        #   cosign verify-blob --signature sbom-image.spdx.json.sig \
-        #     --certificate sbom-image.spdx.json.pem \
+        # this drops a Sigstore bundle *next to the asset* so a downloader
+        # (and Scorecard's Signed-Releases check, which credits .sigstore.json)
+        # can verify from the release alone. Keyless: identity is this
+        # workflow's OIDC token, logged in Rekor — no key to store. Verify:
+        #   cosign verify-blob --bundle sbom-image.spdx.json.sigstore.json \
         #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
         #     --certificate-identity-regexp '^https://github.com/${{ github.repository }}/\.github/workflows/release\.yaml@' \
         #     sbom-image.spdx.json
         run: |
           cosign sign-blob --yes \
-            --output-signature sbom-image.spdx.json.sig \
-            --output-certificate sbom-image.spdx.json.pem \
+            --bundle sbom-image.spdx.json.sigstore.json \
             sbom-image.spdx.json
 
       - name: Attach SBOM (+ signature) to the GitHub release
@@ -234,7 +234,7 @@ jobs:
         run: |
           gh release upload "${{ needs.release-please.outputs.tag-name }}" \
             sbom-image.spdx.json \
-            sbom-image.spdx.json.sig sbom-image.spdx.json.pem --clobber
+            sbom-image.spdx.json.sigstore.json --clobber
 
   publish-shim:
     name: Publish kpssh-shim (attested)
@@ -254,6 +254,8 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
 
       - name: Checksum
         # The shim is the one artifact users install by hand, as root, on every
@@ -278,17 +280,15 @@ jobs:
 
       - name: Sign shim (cosign sign-blob, keyless)
         # The shim is installed by hand as root on every host — the asset most
-        # worth a detached signature. Keyless, same as the image/chart. Verify:
-        #   cosign verify-blob --signature kpssh-shim.sig \
-        #     --certificate kpssh-shim.pem \
+        # worth a signature. Keyless, same as the image/chart. Verify:
+        #   cosign verify-blob --bundle kpssh-shim.sigstore.json \
         #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
         #     --certificate-identity-regexp '^https://github.com/${{ github.repository }}/\.github/workflows/release\.yaml@' \
         #     kpssh-shim
         working-directory: shim
         run: |
           cosign sign-blob --yes \
-            --output-signature kpssh-shim.sig \
-            --output-certificate kpssh-shim.pem \
+            --bundle kpssh-shim.sigstore.json \
             kpssh-shim
 
       - name: Attach shim + checksum (+ signature) to the GitHub release
@@ -297,7 +297,7 @@ jobs:
         run: |
           gh release upload "${{ needs.release-please.outputs.tag-name }}" \
             shim/kpssh-shim shim/kpssh-shim.sha256 \
-            shim/kpssh-shim.sig shim/kpssh-shim.pem --clobber
+            shim/kpssh-shim.sigstore.json --clobber
 
   publish-chart:
     name: Publish helm chart (signed, attested)
@@ -334,6 +334,8 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
 
       - name: Login to GHCR (docker config)
         # `helm registry login` below only writes helm's own registry config.
@@ -385,16 +387,14 @@ jobs:
         # cosign signs the OCI chart above; this signs the .tgz release asset
         # (a different artifact) so a `helm pull`-from-release user can verify
         # keyless. Verify (resolve the exact name first):
-        #   cosign verify-blob --signature karpenter-provider-ssh-X.Y.Z.tgz.sig \
-        #     --certificate karpenter-provider-ssh-X.Y.Z.tgz.pem \
+        #   cosign verify-blob --bundle karpenter-provider-ssh-X.Y.Z.tgz.sigstore.json \
         #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
         #     --certificate-identity-regexp '^https://github.com/${{ github.repository }}/\.github/workflows/release\.yaml@' \
         #     karpenter-provider-ssh-X.Y.Z.tgz
         run: |
           tgz=$(ls karpenter-provider-ssh-*.tgz)
           cosign sign-blob --yes \
-            --output-signature "${tgz}.sig" \
-            --output-certificate "${tgz}.pem" \
+            --bundle "${tgz}.sigstore.json" \
             "$tgz"
 
       - name: Attach packaged chart (+ signature) to the GitHub release
@@ -403,7 +403,7 @@ jobs:
         run: |
           gh release upload "${{ needs.release-please.outputs.tag-name }}" \
             karpenter-provider-ssh-*.tgz \
-            karpenter-provider-ssh-*.tgz.sig karpenter-provider-ssh-*.tgz.pem --clobber
+            karpenter-provider-ssh-*.tgz.sigstore.json --clobber
 
   publish-release:
     name: Publish the release (draft → public)
