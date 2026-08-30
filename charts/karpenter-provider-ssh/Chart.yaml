@@ -7,8 +7,8 @@ description: >-
   support. Karpenter core is compiled in — this chart is the only controller
   you deploy.
 type: application
-version: 1.0.1 # x-release-please-version
-appVersion: 1.0.1 # x-release-please-version
+version: 1.0.0 # x-release-please-version
+appVersion: 1.0.0 # x-release-please-version
 # 1.31 is the floor because spec.nodeAddress validates with CEL isIP(), which
 # needs the 1.31 IP library. Nothing is lost: 1.29 went upstream-EOL in Feb
 # 2025 and even EKS extended support for it ended Mar 2026.
@@ -32,7 +32,7 @@ annotations:
   artifacthub.io/operator: "true"
   artifacthub.io/images: |
     - name: controller
-      image: ghcr.io/dklesev/karpenter-provider-ssh:v1.0.1 # x-release-please-version
+      image: ghcr.io/dklesev/karpenter-provider-ssh:v1.0.0 # x-release-please-version
   artifacthub.io/crds: |
     - kind: SSHHost
       version: v1beta1
