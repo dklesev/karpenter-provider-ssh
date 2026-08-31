@@ -153,7 +153,7 @@ prepares the host. As root on the host:
 # before you install it: this file runs as root on every host in the pool, so
 # fetching it unverified would hand away exactly what the shim exists to
 # protect. Pin VERSION — "latest" is a moving target for a root-privileged file.
-VERSION=v1.0.1 # x-release-please-version
+VERSION=v1.0.2 # x-release-please-version
 base=https://github.com/dklesev/karpenter-provider-ssh/releases/download/${VERSION}
 curl -fsSLO "${base}/kpssh-shim"
 curl -fsSLO "${base}/kpssh-shim.sha256"

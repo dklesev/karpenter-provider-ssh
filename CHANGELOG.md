@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.0.2](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.1...v1.0.2) (2026-08-31)
+
+
+### Dependencies
+
+* update Go version to 1.27 and golangci-lint to v2.13.2 ([4fa87af](https://github.com/dklesev/karpenter-provider-ssh/commit/4fa87afcc9fa0517d9aba277ef8407b623ed1f8f))
+
 ## [1.0.1](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.0...v1.0.1) (2026-08-30)
 
 
