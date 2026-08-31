@@ -89,7 +89,11 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.12.2
+          # Must be built with Go >= the go.mod version, else it hard-errors
+          # ("Go language version used to build golangci-lint is lower than the
+          # targeted Go version"). v2.13.2 is built with go1.27. Bump in lockstep
+          # with the go directive — dependabot does not track this input.
+          version: v2.13.2
 
       - name: shellcheck (shipped shell)
         # ubuntu-24.04 runners ship shellcheck. Files and severity live in the

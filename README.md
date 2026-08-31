@@ -3,7 +3,7 @@
 [![CI](https://github.com/dklesev/karpenter-provider-ssh/actions/workflows/ci.yaml/badge.svg)](https://github.com/dklesev/karpenter-provider-ssh/actions/workflows/ci.yaml)
 [![Release](https://img.shields.io/github/v/release/dklesev/karpenter-provider-ssh?include_prereleases&sort=semver)](https://github.com/dklesev/karpenter-provider-ssh/releases)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dklesev/karpenter-provider-ssh/badge)](https://scorecard.dev/viewer/?uri=github.com/dklesev/karpenter-provider-ssh)
-[![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go)](go.mod)
+[![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go)](go.mod)
 [![Karpenter](https://img.shields.io/badge/karpenter-v1.14-blue)](https://karpenter.sh)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-1d6e5e)](LICENSE)
 
@@ -179,7 +179,7 @@ steps in the release notes, until a battle-tested `v1`.
 |---|---|
 | karpenter library | v1.14.x (`karpenter.sh` CRDs vendored via `make karpenter-crds`) |
 | Kubernetes | 1.31+ (CI exercises 1.34: envtest + kind) |
-| Go | 1.26 |
+| Go | 1.27 |
 
 Releases follow semver via release-please; every release publishes a
 multi-arch image (`ghcr.io/dklesev/karpenter-provider-ssh`) and a helm chart
