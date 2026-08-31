@@ -1,29 +1,28 @@
 name: Release
 
 # release-please maintains a release PR from conventional commits on main.
-# Merging it tags vX.Y.Z + creates the GitHub release, which triggers the
+# Merging it creates a DRAFT GitHub release, which triggers the
 # supply-chain-hardened publish below:
 #   - multi-arch image, pushed by digest, with BuildKit SBOM + provenance
 #   - keyless cosign signatures (GitHub OIDC) for image AND chart
 #   - SLSA build-provenance + SBOM attestations via the GitHub attestation API
 #     (auto-skipped while the repo is private — the API refuses user-owned
 #     private repos; they resume the moment the repo goes public)
-#   - SBOM and packaged chart attached to the immutable GitHub release
+#   - SBOM, shim, and packaged chart attached while the release is still a
+#     draft; `publish-release` then flips it public, which is the point
+#     GitHub release immutability freezes the tag and its assets
 # Verify (see SECURITY.md): gh attestation verify / cosign verify.
 
 on:
   push:
     branches:
       - main
+  # Manual trigger for the normal flow (e.g. the first release, or to refresh
+  # the release PR without a new commit). Recovery from a failed publish leg is
+  # GitHub's native "Re-run failed jobs": it keeps the run's commit SHA and
+  # re-runs publish-release once the leg passes, finishing the still-draft
+  # release — no bespoke resume path needed.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: >-
-          Existing release tag to re-publish (e.g. v0.3.0). Skips
-          release-please and reruns the publish jobs for that tag — for when a
-          publish leg failed after the release was already created.
-        required: false
-        default: ""
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -45,34 +44,25 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
-      # A manual `tag` input impersonates a fresh release so the publish jobs
-      # run for it; `inputs.tag` is '' on push events, so the release-please
-      # outputs win there. (The `&&/||` chains are GitHub's ternary — the
-      # truthy arms are never '' here, so the fallback cannot misfire.)
-      release-created: ${{ inputs.tag != '' && 'true' || steps.release.outputs.release_created }}
-      tag-name: ${{ inputs.tag != '' && inputs.tag || steps.release.outputs.tag_name }}
+      release-created: ${{ steps.release.outputs.release_created }}
+      tag-name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
       # JSON blob of the open release PR (number, headBranchName, …);
       # empty when no PR was created/updated on this run.
-      pr: ${{ inputs.tag == '' && steps.release.outputs.pr || '' }}
+      pr: ${{ steps.release.outputs.pr }}
+      # Commit the publish jobs build from. release-please creates the release
+      # as a DRAFT (release-please-config.json), so its tag ref does not exist
+      # until `publish-release` flips it public — the jobs cannot check out the
+      # tag. This run's SHA is the merged release PR, which already carries
+      # release-please's version bumps, so it is what the new tag will point at.
+      sha: ${{ github.sha }}
     steps:
       - name: Run release-please
         id: release
-        if: ${{ inputs.tag == '' }}
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-      - name: Validate re-publish tag
-        if: ${{ inputs.tag != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
-        run: |
-          # Publish jobs check out and upload to this tag's release; fail here
-          # with a clear message instead of four cryptic checkout errors.
-          gh release view "$TAG" --repo "${{ github.repository }}" --json tagName -q .tagName
 
   pr-gate:
     name: Dispatch CI onto the release PR
@@ -140,7 +130,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.tag-name }}
+          ref: ${{ needs.release-please.outputs.sha }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -157,6 +147,8 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
 
       - name: Build + push (multi-arch, SBOM + provenance embedded)
         id: build
@@ -221,12 +213,28 @@ jobs:
         with:
           subject-path: sbom-image.spdx.json
 
-      - name: Attach SBOM to the GitHub release
+      - name: Sign SBOM file (cosign sign-blob, keyless)
+        # The attest step above binds the SBOM in GitHub's attestation store;
+        # this drops a Sigstore bundle *next to the asset* so a downloader
+        # (and Scorecard's Signed-Releases check, which credits .sigstore.json)
+        # can verify from the release alone. Keyless: identity is this
+        # workflow's OIDC token, logged in Rekor — no key to store. Verify:
+        #   cosign verify-blob --bundle sbom-image.spdx.json.sigstore.json \
+        #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+        #     --certificate-identity-regexp '^https://github.com/${{ github.repository }}/\.github/workflows/release\.yaml@' \
+        #     sbom-image.spdx.json
+        run: |
+          cosign sign-blob --yes \
+            --bundle sbom-image.spdx.json.sigstore.json \
+            sbom-image.spdx.json
+
+      - name: Attach SBOM (+ signature) to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ needs.release-please.outputs.tag-name }}" \
-            sbom-image.spdx.json --clobber
+            sbom-image.spdx.json \
+            sbom-image.spdx.json.sigstore.json --clobber
 
   publish-shim:
     name: Publish kpssh-shim (attested)
@@ -242,7 +250,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.tag-name }}
+          ref: ${{ needs.release-please.outputs.sha }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
 
       - name: Checksum
         # The shim is the one artifact users install by hand, as root, on every
@@ -265,12 +278,26 @@ jobs:
         with:
           subject-path: shim/kpssh-shim
 
-      - name: Attach shim + checksum to the GitHub release
+      - name: Sign shim (cosign sign-blob, keyless)
+        # The shim is installed by hand as root on every host — the asset most
+        # worth a signature. Keyless, same as the image/chart. Verify:
+        #   cosign verify-blob --bundle kpssh-shim.sigstore.json \
+        #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+        #     --certificate-identity-regexp '^https://github.com/${{ github.repository }}/\.github/workflows/release\.yaml@' \
+        #     kpssh-shim
+        working-directory: shim
+        run: |
+          cosign sign-blob --yes \
+            --bundle kpssh-shim.sigstore.json \
+            kpssh-shim
+
+      - name: Attach shim + checksum (+ signature) to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ needs.release-please.outputs.tag-name }}" \
-            shim/kpssh-shim shim/kpssh-shim.sha256 --clobber
+            shim/kpssh-shim shim/kpssh-shim.sha256 \
+            shim/kpssh-shim.sigstore.json --clobber
 
   publish-chart:
     name: Publish helm chart (signed, attested)
@@ -287,7 +314,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.tag-name }}
+          ref: ${{ needs.release-please.outputs.sha }}
 
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
@@ -307,6 +334,8 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
 
       - name: Login to GHCR (docker config)
         # `helm registry login` below only writes helm's own registry config.
@@ -354,9 +383,46 @@ jobs:
         with:
           subject-path: karpenter-provider-ssh-*.tgz
 
-      - name: Attach packaged chart to the GitHub release
+      - name: Sign chart archive (cosign sign-blob, keyless)
+        # cosign signs the OCI chart above; this signs the .tgz release asset
+        # (a different artifact) so a `helm pull`-from-release user can verify
+        # keyless. Verify (resolve the exact name first):
+        #   cosign verify-blob --bundle karpenter-provider-ssh-X.Y.Z.tgz.sigstore.json \
+        #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+        #     --certificate-identity-regexp '^https://github.com/${{ github.repository }}/\.github/workflows/release\.yaml@' \
+        #     karpenter-provider-ssh-X.Y.Z.tgz
+        run: |
+          tgz=$(ls karpenter-provider-ssh-*.tgz)
+          cosign sign-blob --yes \
+            --bundle "${tgz}.sigstore.json" \
+            "$tgz"
+
+      - name: Attach packaged chart (+ signature) to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ needs.release-please.outputs.tag-name }}" \
-            karpenter-provider-ssh-*.tgz --clobber
+            karpenter-provider-ssh-*.tgz \
+            karpenter-provider-ssh-*.tgz.sigstore.json --clobber
+
+  publish-release:
+    name: Publish the release (draft → public)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Every asset is attached to the draft by the jobs above. Flipping it
+    # public is the instant immutability freezes the release — the tag ref is
+    # created and the assets can no longer change. Do it last, and only when
+    # all three publish legs succeeded: a failed leg then leaves a resumable
+    # draft (GitHub's "Re-run failed jobs") instead of a half-filled release
+    # that immutability would lock in its broken state.
+    needs: [release-please, publish-image, publish-shim, publish-chart]
+    if: needs.release-please.outputs.release-created == 'true'
+    permissions:
+      contents: write # publish the release + create its tag
+    steps:
+      - name: Flip draft to public
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag-name }}
+          REPO: ${{ github.repository }}
+        run: gh release edit "$TAG" --repo "$REPO" --draft=false

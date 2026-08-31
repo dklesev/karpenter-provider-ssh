@@ -2,7 +2,7 @@
 
 ## Toolchain
 
-Go 1.26, helm ≥ 3.13 (the same floor users install with — see
+Go 1.27, helm ≥ 3.13 (the same floor users install with — see
 [Installation](installation.md#prerequisites)), docker (buildx for multi-arch),
 and `shellcheck` (for the
 shipped shell; ubuntu runners and homebrew both have it).
