@@ -160,6 +160,13 @@ Activation credentials come from `joinSecretRef` — the provider stays
 AWS-free and only reads the Secret at join time; producing and rotating it is
 outside its scope.
 
+Do not xtrace secrets: `set -x` prints commands after expansion, so a
+`: "${KPSSH_SECRET_ACTIVATIONID:?}"` check or a heredoc that interpolates
+`KPSSH_SECRET_*` echoes the value to stderr, which the controller relays into
+its logs. The shipped `join` runs the activation checks and the `nodeConfig.yaml`
+heredoc without `-x` and switches tracing on only afterwards. Follow the same
+rule in your own profiles for every `KPSSH_SECRET_*` value.
+
 ### `sbc` ([examples/sbc/profile-sbc.yaml](https://github.com/dklesev/karpenter-provider-ssh/blob/main/examples/sbc/profile-sbc.yaml))
 
 `tls-bootstrap` for Debian-family single-board computers (Raspberry Pi OS,

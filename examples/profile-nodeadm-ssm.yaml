@@ -47,13 +47,18 @@ spec:
 
     join: |
       #!/usr/bin/env bash
-      set -euxo pipefail
+      # No `-x` here: xtrace prints commands AFTER expansion, so the `:?` checks
+      # and the heredoc below would echo the SSM activation id/code to stderr,
+      # which the controller relays into its logs. Tracing is switched on
+      # selectively, once no secret is on the command line.
+      set -euo pipefail
       : "${KPSSH_VAR_clusterName:?}" "${KPSSH_VAR_region:?}"
 
       # WARM PATH: SSM registration + nodeadm config survive leave — the node
       # identity (mi-*) is durable. Re-enable and start the runtime + kubelet
       # (leave disables both so a host reboot cannot rejoin the cluster).
       if [ -f /var/lib/amazon/ssm/registration ] && [ -f /etc/nodeadm/nodeConfig.yaml ]; then
+        set -x
         systemctl enable --now containerd
         systemctl enable --now kubelet
         echo "kpssh join: warm start OK"
@@ -85,6 +90,8 @@ spec:
       EOF
       chmod 600 /etc/nodeadm/nodeConfig.yaml
 
+      # Secrets are on disk (mode 600) now; safe to trace from here on.
+      set -x
       /usr/local/bin/nodeadm init --config-source file:///etc/nodeadm/nodeConfig.yaml
       echo "kpssh join: cold init OK"
 
