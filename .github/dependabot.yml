@@ -42,4 +42,15 @@ updates:
     commit-message:
       prefix: deps
   # test/e2e/host-image is intentionally not monitored: its FROM is a
-  # build-arg resolved at runtime to the kind cluster's own node image.
+  # build-arg TestMain always sets to the kind cluster's own node image. The
+  # ARG default is digest-pinned only so the Dockerfile is provably pinned
+  # (Scorecard) — it tracks kindNodeImageDefault in test/e2e/main_test.go.
+  - package-ecosystem: pip
+    directory: /hack/docs
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    # The docs site is not a shipped artifact; a generator bump must not cut
+    # a release, same reasoning as the github-actions group above.
+    commit-message:
+      prefix: ci

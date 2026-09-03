@@ -68,6 +68,17 @@ run: build ## dev mode against current kubeconfig
 test: generate ## unit tests (no cluster needed)
 	go test ./...
 
+# Native Go fuzzing of the parsers that take bytes off the wire or from the
+# API server (SSHSIG, pinned host keys, probe output). Plain `go test` runs
+# only the seed corpus; this drives the engine for a bounded time per target.
+# Go accepts one -fuzz pattern per invocation, hence one line per target.
+FUZZ_TIME ?= 30s
+.PHONY: fuzz
+fuzz: ## run each Fuzz* target for $(FUZZ_TIME) (default 30s)
+	go test -run '^$$' -fuzz '^FuzzVerifySSHSIG$$' -fuzztime $(FUZZ_TIME) ./internal/sshexec/
+	go test -run '^$$' -fuzz '^FuzzPinnedFingerprintFromKnownHost$$' -fuzztime $(FUZZ_TIME) ./internal/sshexec/
+	go test -run '^$$' -fuzz '^FuzzParseProbeOutput$$' -fuzztime $(FUZZ_TIME) ./pkg/controllers/
+
 ENVTEST_K8S_VERSION ?= 1.34.x
 # -count=1 for the same reason as e2e below, if less acutely: this drives a real
 # apiserver against the CRDs on disk. 14s is a cheap price for a gate that is
@@ -137,20 +148,31 @@ helm-lint: ## helm lint + template smoke: default values AND every optional obje
 helm-docs: ## regenerate chart README from values annotations
 	$(HELM_DOCS) --chart-search-root charts
 
-# The site generator is pinned here and docs.yaml reads the pin back out
-# (`make print-zensical-version`), so a local `make docs` and the published
-# site cannot skew.
+# The site generator is hash-pinned in hack/docs/requirements.txt and
+# docs.yaml installs from the same file, so a local `make docs` and the
+# published site cannot skew. Bump hack/docs/requirements.in, then
+# `make docs-lock`. (Under hack/, not docs/: zensical publishes every
+# non-Markdown file it finds in docs/.)
 #
 # Into a throwaway venv under bin/ (already gitignored), never a bare `pip
 # install`: that is a hard error on any PEP 668 python — homebrew, Debian —
 # and silently pollutes the user's environment on the rest.
-ZENSICAL_VERSION = 0.0.50
 DOCS_VENV = bin/docs-venv
+DOCS_REQUIREMENTS = hack/docs/requirements.txt
 ZENSICAL = $(DOCS_VENV)/bin/zensical
 
-$(ZENSICAL):
+$(ZENSICAL): $(DOCS_REQUIREMENTS)
 	python3 -m venv $(DOCS_VENV)
-	$(DOCS_VENV)/bin/pip install --quiet zensical==$(ZENSICAL_VERSION)
+	$(DOCS_VENV)/bin/pip install --quiet --require-hashes -r $(DOCS_REQUIREMENTS)
+
+# --universal: hashes for every platform wheel, so one lock installs on a
+# macOS laptop and the ubuntu runner alike. --python-version must match the
+# interpreter docs.yaml sets up.
+.PHONY: docs-lock
+docs-lock: ## regenerate hack/docs/requirements.txt (hashed) from requirements.in
+	cd hack/docs && uv pip compile --universal --python-version 3.13 \
+		--generate-hashes --no-header \
+		--output-file requirements.txt requirements.in
 
 .PHONY: docs
 docs: $(ZENSICAL) ## build the docs site into site/ (same pin as CI)
@@ -224,6 +246,3 @@ verify-license: ## fail on Go files missing the license header
 verify: generate manifests karpenter-crds helm-docs verify-license lint-docs ## fail on any codegen/chart-README/license/docs-link drift (mirrors CI's codegen job)
 	git diff --exit-code
 
-.PHONY: print-zensical-version
-print-zensical-version:
-	@echo $(ZENSICAL_VERSION)

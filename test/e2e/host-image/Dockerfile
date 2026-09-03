@@ -26,7 +26,10 @@
 # BASE must match the cluster's node image (same kubelet version as the
 # control plane). TestMain passes the same pinned image it hands `kind create`,
 # so the two are identical by construction rather than derived at runtime.
-ARG BASE
+# The default exists so the Dockerfile is pinned by digest on its own (a
+# build without --build-arg, and Scorecard's Pinned-Dependencies check); keep
+# it equal to kindNodeImageDefault in test/e2e/main_test.go.
+ARG BASE=kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a
 FROM ${BASE}
 
 ENV DEBIAN_FRONTEND=noninteractive

@@ -124,7 +124,7 @@ func TestVerifySSHSIGRejectsSHA1RSA(t *testing.T) {
 }
 
 // armorSSHSIG wraps a signature into the PEM-armored SSHSIG wire format.
-func armorSSHSIG(t *testing.T, pub ssh.PublicKey, namespace, hash string, sig *ssh.Signature) []byte {
+func armorSSHSIG(t testing.TB, pub ssh.PublicKey, namespace, hash string, sig *ssh.Signature) []byte {
 	t.Helper()
 	var inner []byte
 	inner = appendSSHString(inner, []byte(sig.Format))

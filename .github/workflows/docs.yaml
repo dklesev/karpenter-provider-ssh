@@ -48,17 +48,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.x"
+          # Same floor uv resolved hack/docs/requirements.txt against (see
+          # `make docs-lock`); a hashed lock is only as reproducible as the
+          # interpreter it was resolved for.
+          python-version: "3.13"
 
       - name: Install zensical
-        # Pinned: this is the site generator, and an unpinned install means
-        # the published docs can change without a commit. Bump deliberately —
-        # there is no requirements.txt for dependabot to track.
-        # Version pinned in the Makefile so `make docs` locally and this job
-        # build with the same generator (see the Makefile header).
-        run: |
-          v=$(make -s print-zensical-version)
-          pip install "zensical==${v}"
+        # Hash-pinned: this is the site generator, and an unpinned install
+        # means the published docs can change without a commit. The lock is
+        # shared with `make docs` so a local build and this job cannot skew,
+        # and dependabot bumps it (pip ecosystem in dependabot.yml).
+        run: pip install --require-hashes -r hack/docs/requirements.txt
 
       - name: Build site
         run: zensical build --clean

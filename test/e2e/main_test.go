@@ -37,7 +37,8 @@ const (
 	// for BOTH the host image's FROM and every `kind create --image`, so the
 	// pool host's kubelet is byte-identical to the control plane by
 	// construction — no runtime derivation. Override with E2E_KIND_IMAGE.
-	kindNodeImageDefault = "kindest/node:v1.34.0"
+	// Digest-pinned; mirrored as the ARG default in host-image/Dockerfile.
+	kindNodeImageDefault = "kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a"
 
 	controllerImg = "kpssh-e2e/controller:dev"
 	hostImg       = "kpssh-e2e/host:dev"
