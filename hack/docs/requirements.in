@@ -1,0 +1,7 @@
+# Docs site generator. The single input for requirements.txt next to it,
+# which is what CI and `make docs` actually install (hash-pinned,
+# --require-hashes). Lives under hack/ rather than docs/ because zensical
+# copies every non-Markdown file in docs/ into the published site.
+# Bump the version here, then regenerate the lock:
+#   make docs-lock
+zensical==0.0.50

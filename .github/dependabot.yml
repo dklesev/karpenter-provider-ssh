@@ -1,3 +1,6 @@
+# Commit prefixes decide what release-please picks up: `deps` cuts a patch
+# release, `ci` does not. We want to make sure only application-centered
+# dependency updates are part of new releases.
 version: 2
 updates:
   - package-ecosystem: gomod
@@ -41,5 +44,15 @@ updates:
           - "*"
     commit-message:
       prefix: deps
-  # test/e2e/host-image is intentionally not monitored: its FROM is a
-  # build-arg resolved at runtime to the kind cluster's own node image.
+  # test/e2e/host-image is intentionally not monitored: the e2e suite always
+  # overrides its FROM with the kind cluster's own node image at build time.
+  - package-ecosystem: pip
+    directory: /hack/docs
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    # /hack/docs dependency updates are committed using type 'ci' as these are
+    # part of the CI/CD workflow and not of the actual application, and should
+    # therefore not be part of the application's CHANGELOG.
+    commit-message:
+      prefix: ci
