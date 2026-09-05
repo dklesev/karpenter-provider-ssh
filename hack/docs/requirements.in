@@ -4,4 +4,4 @@
 # copies every non-Markdown file in docs/ into the published site.
 # Bump the version here, then regenerate the lock:
 #   make docs-lock
-zensical==0.0.50
+zensical==0.0.57
