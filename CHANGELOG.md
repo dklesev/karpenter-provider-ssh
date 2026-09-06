@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.0.3](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.2...v1.0.3) (2026-09-06)
+
+
+### Bug Fixes
+
+* **examples:** do not xtrace SSM activation secrets in nodeadm-ssm join ([#10](https://github.com/dklesev/karpenter-provider-ssh/issues/10)) ([16a1052](https://github.com/dklesev/karpenter-provider-ssh/commit/16a10527539e57e672fc5b939dec90e90fff1800))
+
+
+### Dependencies
+
+* bump golang from `4013ae0` to `512690a` in the images group ([#13](https://github.com/dklesev/karpenter-provider-ssh/issues/13)) ([311d2a7](https://github.com/dklesev/karpenter-provider-ssh/commit/311d2a7392b1ecf39f878c7adc8a0e11cce5b734))
+* bump x/crypto to v0.56.0 and address Scorecard findings ([#12](https://github.com/dklesev/karpenter-provider-ssh/issues/12)) ([51dfc0e](https://github.com/dklesev/karpenter-provider-ssh/commit/51dfc0e7bde85dab654445565dc4645401cf6e17))
+
 ## [1.0.2](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.1...v1.0.2) (2026-08-31)
 
 

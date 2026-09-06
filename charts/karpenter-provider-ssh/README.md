@@ -8,7 +8,7 @@ Karpenter provider that autoscales cluster membership of pre-existing SSH-reacha
 ```bash
 helm install karpenter-provider-ssh \
   oci://ghcr.io/dklesev/charts/karpenter-provider-ssh \
-  --version 1.0.2 \
+  --version 1.0.3 \
   --namespace kpssh-system --create-namespace
 ```
 <!-- x-release-please-end -->
