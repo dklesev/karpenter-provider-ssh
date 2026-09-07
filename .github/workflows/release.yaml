@@ -50,15 +50,22 @@ jobs:
       # JSON blob of the open release PR (number, headBranchName, …);
       # empty when no PR was created/updated on this run.
       pr: ${{ steps.release.outputs.pr }}
-      # Commit the publish jobs build from. release-please creates the release
-      # as a DRAFT (release-please-config.json), so its tag ref does not exist
-      # until `publish-release` flips it public — the jobs cannot check out the
-      # tag. This run's SHA is the merged release PR, which already carries
-      # release-please's version bumps, so it is what the new tag will point at.
+      # Commit the publish jobs build from: the merged release PR's SHA, which
+      # carries release-please's version bumps and is exactly where the tag
+      # points. The jobs key off this SHA (not the tag ref), so they build the
+      # right tree regardless of tag/publish timing.
       sha: ${{ github.sha }}
     steps:
       - name: Run release-please
         id: release
+        # `force-tag-creation` (release-please-config.json) is load-bearing.
+        # A DRAFT release has no git tag until it is published, and release-please
+        # cannot find a tagless release. Without the forced tag, the SAME run that
+        # merges a release PR would see no prior release, treat all history as
+        # unreleased, and open a bogus initial-version 1.0.0 "downgrade" release PR
+        # (it self-corrects only on the next push, and never auto-closes the bogus
+        # one). Forcing the tag at draft time lets release-please find this release
+        # and compute the next PR correctly. Keep it as long as `draft: true`.
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           config-file: release-please-config.json
