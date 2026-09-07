@@ -1,6 +1,27 @@
 # Changelog
 
 
+## [1.0.0](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.3...v1.0.0) (2026-09-07)
+
+
+### Features
+
+* karpenter-provider-ssh ([3bc25c2](https://github.com/dklesev/karpenter-provider-ssh/commit/3bc25c26aa3f6909f4ed771eb67a44b6500aad39))
+
+
+### Bug Fixes
+
+* **examples:** do not xtrace SSM activation secrets in nodeadm-ssm join ([#10](https://github.com/dklesev/karpenter-provider-ssh/issues/10)) ([16a1052](https://github.com/dklesev/karpenter-provider-ssh/commit/16a10527539e57e672fc5b939dec90e90fff1800))
+* pin cosign version ([bc53453](https://github.com/dklesev/karpenter-provider-ssh/commit/bc5345356e13c0107f3c554de5ff55eb80fc212a))
+
+
+### Dependencies
+
+* bump golang from `4013ae0` to `512690a` in the images group ([#13](https://github.com/dklesev/karpenter-provider-ssh/issues/13)) ([311d2a7](https://github.com/dklesev/karpenter-provider-ssh/commit/311d2a7392b1ecf39f878c7adc8a0e11cce5b734))
+* bump the k8s group across 1 directory with 3 updates ([#2](https://github.com/dklesev/karpenter-provider-ssh/issues/2)) ([905ddfb](https://github.com/dklesev/karpenter-provider-ssh/commit/905ddfbbe371e5b80dd430bba1cf1fabaa79ae6d))
+* bump x/crypto to v0.56.0 and address Scorecard findings ([#12](https://github.com/dklesev/karpenter-provider-ssh/issues/12)) ([51dfc0e](https://github.com/dklesev/karpenter-provider-ssh/commit/51dfc0e7bde85dab654445565dc4645401cf6e17))
+* update Go version to 1.27 and golangci-lint to v2.13.2 ([4fa87af](https://github.com/dklesev/karpenter-provider-ssh/commit/4fa87afcc9fa0517d9aba277ef8407b623ed1f8f))
+
 ## [1.0.3](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.2...v1.0.3) (2026-09-06)
 
 
