@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.0.4](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.3...v1.0.4) (2026-09-13)
+
+
+### Dependencies
+
+* bump golang from `512690a` to `f44f6e8` in the images group ([#19](https://github.com/dklesev/karpenter-provider-ssh/issues/19)) ([449407f](https://github.com/dklesev/karpenter-provider-ssh/commit/449407f5b9f88400b98f6ae57a88c24035747897))
+* bump golang.org/x/crypto from 0.56.0 to 0.57.0 ([#21](https://github.com/dklesev/karpenter-provider-ssh/issues/21)) ([93f1a33](https://github.com/dklesev/karpenter-provider-ssh/commit/93f1a33cc23f1623d9696c36bb81f99c4c25505d))
+* bump sigs.k8s.io/controller-runtime from 0.24.1 to 0.25.0 in the k8s group across 1 directory ([#20](https://github.com/dklesev/karpenter-provider-ssh/issues/20)) ([7278a5f](https://github.com/dklesev/karpenter-provider-ssh/commit/7278a5f40cbbcfc953676baf5423cbaf0103137d))
+
 ## [1.0.3](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.2...v1.0.3) (2026-09-06)
 
 
