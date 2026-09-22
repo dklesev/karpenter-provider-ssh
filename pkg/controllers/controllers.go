@@ -34,6 +34,9 @@ func NewControllers(kubeClient client.Client, kubernetesInterface kubernetes.Int
 		// Exec/ExecShim/Recorder/Bootstrap are defaulted in Register.
 		&HostProbeReconciler{Client: kubeClient, KubernetesInterface: kubernetesInterface},
 		&NodeClassReconciler{Client: kubeClient, HostProvider: hostProvider},
+		// Opens NodePool startupTaints on nodes of a class once the class's
+		// gate condition holds (Recorder defaulted in Register).
+		&StartupTaintGateReconciler{Client: kubeClient},
 		status.NewController[*v1beta1.SSHNodeClass](kubeClient, eventRecorder),
 	}
 }

@@ -28,6 +28,7 @@ nav = [
       { "Overview" = "adr/README.md" },
       { "0001 — SSH as the transport" = "adr/0001-ssh-as-the-transport.md" },
       { "0002 — API group and naming" = "adr/0002-api-group-and-naming.md" },
+      { "0003 — Startup taint gates" = "adr/0003-startup-taint-gates.md" },
   ] },
 ]
 

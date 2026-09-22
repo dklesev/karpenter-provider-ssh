@@ -106,6 +106,104 @@ type SSHNodeClassSpec struct {
 	// joins nodes to.
 	// +optional
 	Cluster *ClusterAccess `json:"cluster,omitempty"`
+
+	// StartupTaintGates declares when a NodePool startupTaint is removed from
+	// nodes of this class. Karpenter core stamps the NodePool's startupTaints
+	// onto the Node at registration and holds the NodeClaim's Initialized
+	// condition until they are gone; nothing removes them on its own. Each
+	// gate names one such taint key and the observable condition that opens
+	// it (see StartupTaintCondition). Only taints listed in the owning
+	// NodeClaim's spec.startupTaints are ever removed — a gate cannot strip a
+	// taint the pool did not declare.
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(g, self.filter(o, o.taintKey == g.taintKey).size() == 1)",message="startupTaintGates taintKey must be unique"
+	// +listType=map
+	// +listMapKey=taintKey
+	// +optional
+	StartupTaintGates []StartupTaintGate `json:"startupTaintGates,omitempty"`
+}
+
+// StartupTaintGate binds one startup taint key to the condition that removes
+// it from the Node.
+type StartupTaintGate struct {
+	// TaintKey is the key of a NodePool startupTaint (any effect). Same
+	// grammar as a Node taint key: an optional DNS-subdomain prefix, a slash,
+	// and a qualified name.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`
+	TaintKey string `json:"taintKey"`
+
+	// RemoveWhen is the condition that opens the gate. Exactly one member
+	// must be set.
+	RemoveWhen StartupTaintCondition `json:"removeWhen"`
+}
+
+// StartupTaintCondition is a union: exactly one member is set. New condition
+// kinds are added as further optional members, never by overloading one.
+// +kubebuilder:validation:XValidation:rule="[has(self.podsReady), has(self.nodeCondition)].filter(x, x).size() == 1",message="removeWhen must set exactly one of podsReady, nodeCondition"
+type StartupTaintCondition struct {
+	// PodsReady opens the gate once at least minReady pods matching the
+	// selector in the namespace run on this node with the Ready condition
+	// True. Typical use: a DaemonSet other pods depend on at startup (a
+	// credentials agent, a CNI) that cannot remove a taint itself.
+	// +optional
+	PodsReady *PodsReadyCondition `json:"podsReady,omitempty"`
+
+	// NodeCondition opens the gate once the Node reports the given status
+	// condition type with the given status.
+	// +optional
+	NodeCondition *NodeConditionCondition `json:"nodeCondition,omitempty"`
+}
+
+// PodsReadyCondition gates on Ready pods scheduled to the node.
+type PodsReadyCondition struct {
+	// Namespace the pods live in.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Namespace string `json:"namespace"`
+
+	// Selector picks the pods; must not be empty (an empty selector would
+	// open the gate on any Ready pod, defeating the ordering).
+	// +kubebuilder:validation:XValidation:rule="(has(self.matchLabels) && self.matchLabels.size() > 0) || (has(self.matchExpressions) && self.matchExpressions.size() > 0)",message="podsReady.selector must not be empty"
+	Selector metav1.LabelSelector `json:"selector"`
+
+	// MinReady is how many matching pods must be Ready on the node.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
+	// +optional
+	MinReady *int32 `json:"minReady,omitempty"`
+}
+
+// NodeConditionCondition gates on a Node status condition.
+type NodeConditionCondition struct {
+	// Type of the Node condition, e.g. NetworkUnavailable.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=316
+	Type string `json:"type"`
+
+	// Status the condition must report.
+	// +kubebuilder:validation:Enum=True;False;Unknown
+	// +kubebuilder:default=True
+	// +optional
+	Status corev1.ConditionStatus `json:"status,omitempty"`
+}
+
+// MinReadyOrDefault returns minReady with the API default applied — the
+// default is only materialised by the apiserver, not by Go constructors.
+func (p *PodsReadyCondition) MinReadyOrDefault() int32 {
+	if p.MinReady == nil || *p.MinReady < 1 {
+		return 1
+	}
+	return *p.MinReady
+}
+
+// StatusOrDefault returns status with the API default applied.
+func (n *NodeConditionCondition) StatusOrDefault() corev1.ConditionStatus {
+	if n.Status == "" {
+		return corev1.ConditionTrue
+	}
+	return n.Status
 }
 
 // ClusterAccess pins the API endpoint and CA handed to joining kubelets.
@@ -167,7 +265,8 @@ const (
 
 // JoinHash digests the spec fields that feed the rendered join (vars, join
 // secret ref, providerID mode, cluster override). Scheduling-model-only
-// fields (selector, pricing, kubeReserved, maxPods) are deliberately
+// fields (selector, pricing, kubeReserved, maxPods) and startupTaintGates
+// (evaluated on the live Node, not baked into the join) are deliberately
 // excluded — changing them must not roll nodes. The profile itself is
 // covered separately by the installed-marker (ProfileDrift).
 func (n *SSHNodeClass) JoinHash() string {

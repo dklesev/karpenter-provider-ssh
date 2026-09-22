@@ -116,6 +116,12 @@ spec:
     clusterName: my-cluster
     region: eu-central-1
     k8sVersion: "1.34"
+  startupTaintGates:                # optional startup ordering, see concepts.md
+    - taintKey: example.com/agent-not-ready
+      removeWhen:
+        podsReady:
+          namespace: kube-system
+          selector: {matchLabels: {app.kubernetes.io/name: my-agent}}
 ```
 
 ### spec
@@ -131,6 +137,7 @@ spec:
 | `kubeReserved` | ResourceList | `80m` CPU, `300Mi` mem | kubelet overhead modeled per instance type (keys: `cpu`, `memory`, `ephemeral-storage`). Advertised to karpenter only — align the kubelet's `--kube-reserved` in the join profile |
 | `maxPods` | int32 | `110` | pods capacity advertised per instance type (overrides a `pods` entry in `spec.capacity`). Advertised to karpenter only — align the kubelet's `maxPods` in the join profile |
 | `cluster.endpoint` | string | cluster-info discovery | API server URL handed to joining kubelets (`https://…`); required when hosts can't read `kube-public/cluster-info` (EKS Hybrid) |
+| `startupTaintGates[]` | list (≤ 16, unique `taintKey`) | `[]` | when a NodePool `startupTaint` comes off nodes of this class. `taintKey` must also appear in the NodePool's `template.spec.startupTaints`, or the gate never acts (it never strips a taint the pool did not declare as a startup taint). `removeWhen` is a union with exactly one member: `podsReady {namespace, selector, minReady=1}` — that many pods matching the selector are Ready **on this node**; or `nodeCondition {type, status=True}` — the Node reports that condition. See [startup ordering](concepts.md#startup-ordering-startup-taint-gates) |
 | `cluster.caBundle` | []byte | cluster-info discovery | cluster CA (PEM). A Kubernetes byte field: **base64-encoded string in YAML**, like `webhook.clientConfig.caBundle`. (It became `[]byte` in Go; the wire format did not change.) |
 
 ### status
