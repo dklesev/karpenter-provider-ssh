@@ -205,6 +205,150 @@ spec:
                 - Static
                 - Adopt
                 type: string
+              startupTaintGates:
+                description: |-
+                  StartupTaintGates declares when a NodePool startupTaint is removed from
+                  nodes of this class. Karpenter core stamps the NodePool's startupTaints
+                  onto the Node at registration and holds the NodeClaim's Initialized
+                  condition until they are gone; nothing removes them on its own. Each
+                  gate names one such taint key and the observable condition that opens
+                  it (see StartupTaintCondition). Only taints listed in the owning
+                  NodeClaim's spec.startupTaints are ever removed — a gate cannot strip a
+                  taint the pool did not declare.
+                items:
+                  description: |-
+                    StartupTaintGate binds one startup taint key to the condition that removes
+                    it from the Node.
+                  properties:
+                    removeWhen:
+                      description: |-
+                        RemoveWhen is the condition that opens the gate. Exactly one member
+                        must be set.
+                      properties:
+                        nodeCondition:
+                          description: |-
+                            NodeCondition opens the gate once the Node reports the given status
+                            condition type with the given status.
+                          properties:
+                            status:
+                              default: "True"
+                              description: Status the condition must report.
+                              enum:
+                              - "True"
+                              - "False"
+                              - Unknown
+                              type: string
+                            type:
+                              description: Type of the Node condition, e.g. NetworkUnavailable.
+                              maxLength: 316
+                              minLength: 1
+                              type: string
+                          required:
+                          - type
+                          type: object
+                        podsReady:
+                          description: |-
+                            PodsReady opens the gate once at least minReady pods matching the
+                            selector in the namespace run on this node with the Ready condition
+                            True. Typical use: a DaemonSet other pods depend on at startup (a
+                            credentials agent, a CNI) that cannot remove a taint itself.
+                          properties:
+                            minReady:
+                              default: 1
+                              description: MinReady is how many matching pods must
+                                be Ready on the node.
+                              format: int32
+                              minimum: 1
+                              type: integer
+                            namespace:
+                              description: Namespace the pods live in.
+                              maxLength: 63
+                              minLength: 1
+                              type: string
+                            selector:
+                              description: |-
+                                Selector picks the pods; must not be empty (an empty selector would
+                                open the gate on any Ready pod, defeating the ordering).
+                              properties:
+                                matchExpressions:
+                                  description: matchExpressions is a list of label
+                                    selector requirements. The requirements are ANDed.
+                                  items:
+                                    description: |-
+                                      A label selector requirement is a selector that contains values, a key, and an operator that
+                                      relates the key and values.
+                                    properties:
+                                      key:
+                                        description: key is the label key that the
+                                          selector applies to.
+                                        type: string
+                                      operator:
+                                        description: |-
+                                          operator represents a key's relationship to a set of values.
+                                          Valid operators are In, NotIn, Exists and DoesNotExist.
+                                        type: string
+                                      values:
+                                        description: |-
+                                          values is an array of string values. If the operator is In or NotIn,
+                                          the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                          the values array must be empty. This array is replaced during a strategic
+                                          merge patch.
+                                        items:
+                                          type: string
+                                        type: array
+                                        x-kubernetes-list-type: atomic
+                                    required:
+                                    - key
+                                    - operator
+                                    type: object
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                                matchLabels:
+                                  additionalProperties:
+                                    type: string
+                                  description: |-
+                                    matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                    map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                    operator is "In", and the values array contains only "value". The requirements are ANDed.
+                                  type: object
+                              type: object
+                              x-kubernetes-map-type: atomic
+                              x-kubernetes-validations:
+                              - message: podsReady.selector must not be empty
+                                rule: (has(self.matchLabels) && self.matchLabels.size()
+                                  > 0) || (has(self.matchExpressions) && self.matchExpressions.size()
+                                  > 0)
+                          required:
+                          - namespace
+                          - selector
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: removeWhen must set exactly one of podsReady, nodeCondition
+                        rule: '[has(self.podsReady), has(self.nodeCondition)].filter(x,
+                          x).size() == 1'
+                    taintKey:
+                      description: |-
+                        TaintKey is the key of a NodePool startupTaint (any effect). Same
+                        grammar as a Node taint key: an optional DNS-subdomain prefix, a slash,
+                        and a qualified name.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$
+                      type: string
+                  required:
+                  - removeWhen
+                  - taintKey
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - taintKey
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: startupTaintGates taintKey must be unique
+                  rule: self.all(g, self.filter(o, o.taintKey == g.taintKey).size()
+                    == 1)
               vars:
                 additionalProperties:
                   type: string
