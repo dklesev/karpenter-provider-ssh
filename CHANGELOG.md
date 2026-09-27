@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.1.0](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.4...v1.1.0) (2026-09-27)
+
+
+### Features
+
+* startup taint gates on SSHNodeClass ([#28](https://github.com/dklesev/karpenter-provider-ssh/issues/28)) ([bc0086e](https://github.com/dklesev/karpenter-provider-ssh/commit/bc0086e901a83a06a1376f8e940ee51e94884aa1))
+
+
+### Dependencies
+
+* bump golang from `f44f6e8` to `3680233` in the images group ([#29](https://github.com/dklesev/karpenter-provider-ssh/issues/29)) ([123637a](https://github.com/dklesev/karpenter-provider-ssh/commit/123637a6d595773916fb3928276d56c098a20afd))
+* bump the k8s group across 1 directory with 5 updates ([#30](https://github.com/dklesev/karpenter-provider-ssh/issues/30)) ([95625af](https://github.com/dklesev/karpenter-provider-ssh/commit/95625af96fb81e2f968380814264707e1637e424))
+
 ## [1.0.4](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.0.3...v1.0.4) (2026-09-13)
 
 
