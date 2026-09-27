@@ -52,6 +52,16 @@ var (
 		Buckets:   sshBuckets,
 	}, []string{"phase", "outcome"})
 
+	// gateBuckets span the time a node is expected to sit behind a startup
+	// taint: seconds for a warm DaemonSet, minutes when an image pulls.
+	startupTaintGate = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "kpssh",
+		Subsystem: "node",
+		Name:      "startup_taint_gate_seconds",
+		Help:      "Time from Node creation until a gated startup taint was removed.",
+		Buckets:   []float64{1, 2.5, 5, 10, 20, 30, 60, 120, 300, 600, 1200},
+	}, []string{"taint_key"})
+
 	zombieActions = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "kpssh",
 		Subsystem: "host",
@@ -61,7 +71,7 @@ var (
 )
 
 func init() {
-	crmetrics.Registry.MustRegister(probeDuration, phaseDuration, zombieActions)
+	crmetrics.Registry.MustRegister(probeDuration, phaseDuration, zombieActions, startupTaintGate)
 }
 
 func outcome(err error) string {
@@ -91,6 +101,12 @@ const (
 // RecordZombieAction counts a zombie guard intervention.
 func RecordZombieAction(action string) {
 	zombieActions.WithLabelValues(action).Inc()
+}
+
+// ObserveStartupTaintGate records one opened gate: how long after the Node
+// object appeared the taint came off.
+func ObserveStartupTaintGate(taintKey string, nodeCreated time.Time) {
+	startupTaintGate.WithLabelValues(taintKey).Observe(time.Since(nodeCreated).Seconds())
 }
 
 // poolCollector reports pool inventory on scrape by listing SSHHosts from the

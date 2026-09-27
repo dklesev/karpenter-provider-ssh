@@ -13,6 +13,7 @@ and disruption metrics; the provider adds the SSH-facing view:
 | `kpssh_host_probe_duration_seconds` | histogram | `outcome` | SSH host probe latency (`success`/`error`) |
 | `kpssh_instance_phase_duration_seconds` | histogram | `phase`, `outcome` | profile script phases over SSH (`install`, `join`, `leave`) |
 | `kpssh_host_zombie_actions_total` | counter | `action` | zombie guard interventions: `left`, `parked_foreign`, `leave_failed` |
+| `kpssh_node_startup_taint_gate_seconds` | histogram | `taint_key` | time from Node creation until a gated [startup taint](concepts.md#startup-ordering-startup-taint-gates) was removed |
 
 Useful starting points:
 
@@ -232,3 +233,4 @@ The provider emits Kubernetes events for operational visibility:
 | SSHHost | `CapacityDrift` | probed capacity fell below `spec.capacity` |
 | SSHHost | `ZombieKubelet` / `ZombieLeft` | zombie guard detected / disconnected a stray membership |
 | SSHHost | `ForeignKubelet` | kubelet on a host this provider never installed — parked, never touched |
+| Node | `StartupTaintRemoved` | a `startupTaintGates` condition held and the taint came off (see [concepts](concepts.md#startup-ordering-startup-taint-gates)) |

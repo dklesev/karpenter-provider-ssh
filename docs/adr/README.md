@@ -17,3 +17,4 @@ record that quietly changes to match the present teaches nothing.
 |---|---|---|
 | [0001](0001-ssh-as-the-transport.md) | SSH is the transport; the shim is the API | Accepted |
 | [0002](0002-api-group-and-naming.md) | API group `karpenter.dklesev.github.io`, prefix `kpssh` | Accepted |
+| [0003](0003-startup-taint-gates.md) | Startup ordering is a node-class gate, not a registration hook | Accepted |

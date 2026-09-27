@@ -104,3 +104,68 @@ how that Secret is produced and rotated is outside its scope.
 - **adopt** — the join mechanism owns identity (EKS `nodeadm` sets
   `eks-hybrid:///<region>/<cluster>/<mi-*>`). The provider waits for the Node,
   matches it by InternalIP, and adopts its providerID into the NodeClaim.
+
+## Startup ordering (startup taint gates)
+
+Some DaemonSets have to be up before anything else on the node may start: a
+CNI, a credentials agent that other pods fetch cloud credentials from. On
+cloud nodes this ordering is usually solved by the DaemonSet itself — cilium
+registers nodes with `node.cilium.io/agent-not-ready` and removes it once the
+agent runs. Managed addons and third-party agents cannot do that, and on a
+pool host that rejoins in two seconds the race is real: a pod that needs
+credentials at startup lands before the agent that serves them is Ready.
+
+Karpenter already has half of the primitive: a NodePool's
+`template.spec.startupTaints` are stamped onto the Node at registration and
+the NodeClaim is not `Initialized` until they are gone. The provider adds
+the other half — **who removes them, and when** — as `startupTaintGates` on
+the `SSHNodeClass`:
+
+```yaml
+# NodePool: declare the taint. Karpenter ignores startupTaints when it
+# decides whether pending pods fit, so no pod needs to tolerate it.
+spec:
+  template:
+    spec:
+      startupTaints:
+        - key: example.com/agent-not-ready
+          effect: NoExecute
+---
+# SSHNodeClass: declare when it comes off.
+spec:
+  startupTaintGates:
+    - taintKey: example.com/agent-not-ready
+      removeWhen:
+        podsReady:
+          namespace: kube-system
+          selector:
+            matchLabels: {app.kubernetes.io/name: my-agent}
+          minReady: 1
+```
+
+The gate controller watches tainted pool nodes and the pods on them. When at
+least `minReady` matching pods on **that** node report `Ready=True`, it
+patches the taint off, records a `StartupTaintRemoved` event on the Node and
+observes `kpssh_node_startup_taint_gate_seconds`. Alternatively a gate opens
+on a Node status condition (`removeWhen.nodeCondition: {type, status}`).
+
+Two rules keep this safe:
+
+- **A gate never strips a taint the pool did not declare as a startup
+  taint.** The key must be present in the owning NodeClaim's
+  `spec.startupTaints`; a permanent NodePool taint that happens to share the
+  key is left alone.
+- **Only nodes of this class.** Nodes of another cloudprovider (coexistence)
+  or hand-joined nodes carrying the same key are never touched.
+
+Choosing the effect: `NoSchedule` is the conventional startup taint, but many
+DaemonSets ship a blanket `operator: Exists, effect: NoSchedule` toleration
+and would land anyway; `NoExecute` is tolerated by fewer things (the components
+that must start first — CNI, credential agents — typically tolerate
+everything). The DaemonSet that opens the gate must tolerate the taint, or it
+can never become Ready.
+
+If the condition never holds, the taint stays and the NodeClaim reports
+`Initialized=Unknown` with `StartupTaintsExist` — the node is visibly stuck
+rather than silently running pods in the wrong order. Nothing times out on
+the provider side; fix the agent (or the gate) and the node proceeds.
