@@ -35,7 +35,8 @@ rules:
   # termination finalizer, disruption taints) and DELETEs. hostprobe's zombie
   # guard also deletes the Node object of an unclaimed host that came back with
   # a live kubelet (pkg/controllers/hostprobe.go) — membership IS the billable
-  # unit this provider scales.
+  # unit this provider scales. The startup taint gate PATCHes gated
+  # startupTaints off registered nodes (pkg/controllers/startuptaintgate.go).
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["patch", "delete"]

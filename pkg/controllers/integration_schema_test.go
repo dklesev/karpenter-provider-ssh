@@ -168,6 +168,79 @@ func TestIntegrationCRDSchema(t *testing.T) {
 		}))
 	})
 
+	t.Run("nodeclass startupTaintGates union and selector CEL", func(t *testing.T) {
+		gate := func(mut func(*v1beta1.StartupTaintGate)) v1beta1.StartupTaintGate {
+			g := v1beta1.StartupTaintGate{
+				TaintKey: "example.com/agent-not-ready",
+				RemoveWhen: v1beta1.StartupTaintCondition{PodsReady: &v1beta1.PodsReadyCondition{
+					Namespace: "kube-system",
+					Selector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
+				}},
+			}
+			if mut != nil {
+				mut(&g)
+			}
+			return g
+		}
+		mustReject(t, nodeClass("nc-gate-none", func(nc *v1beta1.SSHNodeClass) {
+			nc.Spec.StartupTaintGates = []v1beta1.StartupTaintGate{gate(func(g *v1beta1.StartupTaintGate) {
+				g.RemoveWhen = v1beta1.StartupTaintCondition{}
+			})}
+		}), "removeWhen with no condition")
+		mustReject(t, nodeClass("nc-gate-both", func(nc *v1beta1.SSHNodeClass) {
+			nc.Spec.StartupTaintGates = []v1beta1.StartupTaintGate{gate(func(g *v1beta1.StartupTaintGate) {
+				g.RemoveWhen.NodeCondition = &v1beta1.NodeConditionCondition{Type: "Ready"}
+			})}
+		}), "removeWhen with two conditions")
+		mustReject(t, nodeClass("nc-gate-empty-selector", func(nc *v1beta1.SSHNodeClass) {
+			nc.Spec.StartupTaintGates = []v1beta1.StartupTaintGate{gate(func(g *v1beta1.StartupTaintGate) {
+				g.RemoveWhen.PodsReady.Selector = metav1.LabelSelector{}
+			})}
+		}), "empty podsReady selector would match every pod")
+		mustReject(t, nodeClass("nc-gate-bad-key", func(nc *v1beta1.SSHNodeClass) {
+			nc.Spec.StartupTaintGates = []v1beta1.StartupTaintGate{gate(func(g *v1beta1.StartupTaintGate) {
+				g.TaintKey = "not a taint key"
+			})}
+		}), "taintKey must follow the taint key grammar")
+		mustReject(t, nodeClass("nc-gate-dup", func(nc *v1beta1.SSHNodeClass) {
+			nc.Spec.StartupTaintGates = []v1beta1.StartupTaintGate{gate(nil), gate(nil)}
+		}), "duplicate taintKey")
+		mustReject(t, nodeClass("nc-gate-status-enum", func(nc *v1beta1.SSHNodeClass) {
+			nc.Spec.StartupTaintGates = []v1beta1.StartupTaintGate{gate(func(g *v1beta1.StartupTaintGate) {
+				g.RemoveWhen = v1beta1.StartupTaintCondition{NodeCondition: &v1beta1.NodeConditionCondition{Type: "Ready", Status: "yes"}}
+			})}
+		}), "nodeCondition.status enum")
+
+		good := nodeClass("nc-gate-good", func(nc *v1beta1.SSHNodeClass) {
+			nc.Spec.StartupTaintGates = []v1beta1.StartupTaintGate{
+				gate(nil),
+				{TaintKey: "example.com/net-not-ready", RemoveWhen: v1beta1.StartupTaintCondition{
+					NodeCondition: &v1beta1.NodeConditionCondition{Type: "NetworkUnavailable", Status: corev1.ConditionFalse},
+				}},
+			}
+		})
+		mustCreate(t, good)
+		got := &v1beta1.SSHNodeClass{}
+		if err := c.Get(ctx, types.NamespacedName{Name: "nc-gate-good"}, got); err != nil {
+			t.Fatal(err)
+		}
+		// apiserver defaulting: minReady=1, nodeCondition.status=True when omitted
+		if mr := got.Spec.StartupTaintGates[0].RemoveWhen.PodsReady.MinReady; mr == nil || *mr != 1 {
+			t.Errorf("minReady not defaulted to 1: %v", mr)
+		}
+		mustCreate(t, nodeClass("nc-gate-default-status", func(nc *v1beta1.SSHNodeClass) {
+			nc.Spec.StartupTaintGates = []v1beta1.StartupTaintGate{{TaintKey: "example.com/x", RemoveWhen: v1beta1.StartupTaintCondition{
+				NodeCondition: &v1beta1.NodeConditionCondition{Type: "Ready"},
+			}}}
+		}))
+		if err := c.Get(ctx, types.NamespacedName{Name: "nc-gate-default-status"}, got); err != nil {
+			t.Fatal(err)
+		}
+		if st := got.Spec.StartupTaintGates[0].RemoveWhen.NodeCondition.Status; st != corev1.ConditionTrue {
+			t.Errorf("nodeCondition.status not defaulted to True: %q", st)
+		}
+	})
+
 	t.Run("host port bounds", func(t *testing.T) {
 		mustReject(t, schemaHost("h-port-high", func(h *v1beta1.SSHHost) {
 			h.Spec.Port = 70000

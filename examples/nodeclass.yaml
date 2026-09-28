@@ -18,3 +18,11 @@ spec:
   vars:
     k8sMinor: "${K8S_MINOR}"
     clusterDNS: "${CLUSTER_DNS}"
+  # Optional startup ordering: remove the NodePool startupTaint below once the
+  # agent DaemonSet pod on the node is Ready (docs/concepts.md).
+  # startupTaintGates:
+  #   - taintKey: example.com/agent-not-ready
+  #     removeWhen:
+  #       podsReady:
+  #         namespace: kube-system
+  #         selector: {matchLabels: {app.kubernetes.io/name: my-agent}}
