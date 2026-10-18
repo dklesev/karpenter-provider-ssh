@@ -35,6 +35,7 @@ const (
 	PhaseJoin      = "join"
 	PhaseLeave     = "leave"
 	PhaseUninstall = "uninstall"
+	PhaseReboot    = "reboot"
 )
 
 // Context is the data available to script templates. Everything is also exported
@@ -155,6 +156,8 @@ func Timeout(p *infrav1.SSHJoinProfile, phase string, def time.Duration) time.Du
 		d = t.Join
 	case PhaseLeave:
 		d = t.Leave
+	case PhaseReboot:
+		d = t.Reboot
 	}
 	if d == nil || d.Duration <= 0 {
 		return def
@@ -175,6 +178,8 @@ func Script(p *infrav1.SSHJoinProfile, phase string) string {
 		return p.Spec.Scripts.Leave
 	case PhaseUninstall:
 		return p.Spec.Scripts.Uninstall
+	case PhaseReboot:
+		return p.Spec.Scripts.Reboot
 	}
 	return ""
 }
@@ -194,6 +199,8 @@ func Signature(p *infrav1.SSHJoinProfile, phase string) string {
 		return s.Leave
 	case PhaseUninstall:
 		return s.Uninstall
+	case PhaseReboot:
+		return s.Reboot
 	}
 	return ""
 }
@@ -216,7 +223,7 @@ func parse(phase, raw string) (*template.Template, error) {
 // Render produces the executable script for a phase.
 func Render(p *infrav1.SSHJoinProfile, phase string, ctx *Context) (string, error) {
 	switch phase {
-	case PhaseInstall, PhaseJoin, PhaseLeave, PhaseUninstall:
+	case PhaseInstall, PhaseJoin, PhaseLeave, PhaseUninstall, PhaseReboot:
 	default:
 		return "", fmt.Errorf("unknown phase %q", phase)
 	}
@@ -237,18 +244,19 @@ func Render(p *infrav1.SSHJoinProfile, phase string, ctx *Context) (string, erro
 }
 
 // Validate reports why a profile cannot be used, before a NodeClaim depends on
-// it: scripts must parse, and leave must render against an empty context.
+// it: scripts must parse, and leave (and reboot, when set) must render against
+// an empty context.
 //
 // The leave check is not pedantry — the release path and the zombie guard both
 // run leave without a node class in hand, so a leave script reaching for
 // {{.Vars.x}} or {{.Secrets.y}} fails at exactly the moment a host must be
 // disconnected, and the guard then retries it forever. The nodeclass Ready
-// condition surfaces this instead.
+// condition surfaces this instead. Repair runs reboot the same way.
 func Validate(p *infrav1.SSHJoinProfile) error {
-	for _, phase := range []string{PhaseInstall, PhaseJoin, PhaseLeave, PhaseUninstall} {
+	for _, phase := range []string{PhaseInstall, PhaseJoin, PhaseLeave, PhaseUninstall, PhaseReboot} {
 		raw := Script(p, phase)
 		if raw == "" {
-			if phase == PhaseUninstall {
+			if phase == PhaseUninstall || phase == PhaseReboot {
 				continue // optional
 			}
 			return fmt.Errorf("profile %s has no %s script", p.Name, phase)
@@ -259,6 +267,11 @@ func Validate(p *infrav1.SSHJoinProfile) error {
 	}
 	if _, err := Render(p, PhaseLeave, &Context{}); err != nil {
 		return fmt.Errorf("leave script must render without a node class (it runs on release and zombie-guard paths): %w", err)
+	}
+	if Script(p, PhaseReboot) != "" {
+		if _, err := Render(p, PhaseReboot, &Context{}); err != nil {
+			return fmt.Errorf("reboot script must render without a node class (repair runs it with the host alone): %w", err)
+		}
 	}
 	return nil
 }

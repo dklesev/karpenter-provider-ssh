@@ -31,7 +31,12 @@ import (
 	"github.com/dklesev/karpenter-provider-ssh/pkg/metrics"
 )
 
-const hostLeaveTimeout = 3 * time.Minute
+const (
+	hostLeaveTimeout = 3 * time.Minute
+	// The reboot script only schedules the reboot; core then waits for the
+	// new boot itself.
+	hostRebootTimeout = time.Minute
+)
 
 // SSHKeySecretKey and KnownHostSecretKey are the data keys read from the
 // Secret referenced by SSHHost.spec.sshKeySecretRef.
@@ -73,17 +78,27 @@ func SSHTarget(h *v1beta1.SSHHost, creds *SSHCredentials) sshexec.Target {
 // LeaveHost runs the leave phase of the host's installed profile over SSH
 // via the given executor. Shared by the release path (Delete) and the
 // hostprobe zombie guard, which disconnects hosts that rejoined on their own
-// (e.g. after a reboot with a leave that did not disable kubelet). Secrets
-// are read through the plain clientset: the cached client would demand a
-// cluster-wide Secret watch the scoped RBAC deliberately does not grant.
+// (e.g. after a reboot with a leave that did not disable kubelet).
 func LeaveHost(ctx context.Context, kubeClient client.Client, kubernetesInterface kubernetes.Interface, exec sshexec.Runner, execShim sshexec.ShimRunner, h *v1beta1.SSHHost) error {
+	return runInstalledPhase(ctx, kubeClient, kubernetesInterface, exec, execShim, h, profile.PhaseLeave, hostLeaveTimeout)
+}
+
+// runInstalledPhase runs a phase of the host's installed profile — leave or
+// reboot, the phases that run with the host alone. Secrets are read through
+// the plain clientset: the cached client would demand a cluster-wide Secret
+// watch the scoped RBAC deliberately does not grant. Failures caused by the
+// profile rather than the host are configErrors.
+func runInstalledPhase(ctx context.Context, kubeClient client.Client, kubernetesInterface kubernetes.Interface, exec sshexec.Runner, execShim sshexec.ShimRunner, h *v1beta1.SSHHost, phase string, def time.Duration) error {
 	if h.Status.InstalledProfile == "" {
-		return fmt.Errorf("host %s has no installed profile to leave with", h.Name)
+		return &configError{fmt.Errorf("host %s has no installed profile to %s with", h.Name, phase)}
 	}
 	profName := strings.SplitN(h.Status.InstalledProfile, "@", 2)[0]
 	prof := &v1beta1.SSHJoinProfile{}
 	if err := kubeClient.Get(ctx, types.NamespacedName{Name: profName}, prof); err != nil {
 		return fmt.Errorf("getting profile %s: %w", profName, err)
+	}
+	if profile.Script(prof, phase) == "" {
+		return &configError{fmt.Errorf("profile %s has no %s script", profName, phase)}
 	}
 
 	creds, err := ReadSSHCredentials(ctx, kubernetesInterface, h)
@@ -92,9 +107,9 @@ func LeaveHost(ctx context.Context, kubeClient client.Client, kubernetesInterfac
 	}
 
 	// No node class in hand here (the zombie guard has no NodeClaim at all), so
-	// the leave script renders against a bare context — profiles whose leave
-	// depends on vars or secrets are rejected by profile.Validate before any
-	// NodeClaim can reach this path.
+	// the script renders against a bare context — profiles whose leave or
+	// reboot depends on vars or secrets are rejected by profile.Validate before
+	// any NodeClaim can reach this path.
 	pctx := &profile.Context{HostAddress: h.Spec.Address, NodeAddress: h.Spec.NodeIP()}
 	env, err := pctx.Env()
 	if err != nil {
@@ -102,20 +117,22 @@ func LeaveHost(ctx context.Context, kubeClient client.Client, kubernetesInterfac
 	}
 	target := SSHTarget(h, creds)
 
-	lctx, cancel := context.WithTimeout(ctx, profile.Timeout(prof, profile.PhaseLeave, hostLeaveTimeout))
+	phaseCtx, cancel := context.WithTimeout(ctx, profile.Timeout(prof, phase, def))
 	defer cancel()
 	start := time.Now()
 	if h.Spec.ExecMode == v1beta1.ExecModeVerified {
-		err = runVerifiedPhase(lctx, execShim, target, h, prof, profile.PhaseLeave, env)
+		err = runVerifiedPhase(phaseCtx, execShim, target, h, prof, phase, env)
 	} else {
 		var script string
-		if script, err = profile.Render(prof, profile.PhaseLeave, pctx); err == nil {
-			_, err = exec(lctx, target, script, env)
+		if script, err = profile.Render(prof, phase, pctx); err != nil {
+			err = &configError{err}
+		} else {
+			_, err = exec(phaseCtx, target, script, env)
 		}
 	}
-	metrics.ObservePhase(profile.PhaseLeave, start, err)
+	metrics.ObservePhase(phase, start, err)
 	if err != nil {
-		return fmt.Errorf("leave phase: %w", err)
+		return fmt.Errorf("%s phase: %w", phase, err)
 	}
 	return nil
 }

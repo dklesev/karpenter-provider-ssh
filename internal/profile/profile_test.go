@@ -161,6 +161,15 @@ func TestValidate(t *testing.T) {
 			t.Fatal("leave referencing .Vars must be rejected")
 		}
 	})
+
+	// Repair runs reboot with the host alone, like leave.
+	t.Run("reboot depending on join-only data", func(t *testing.T) {
+		p := testProfile("x")
+		p.Spec.Scripts.Reboot = "echo {{ .Secrets.token }}"
+		if err := Validate(p); err == nil {
+			t.Fatal("reboot referencing .Secrets must be rejected")
+		}
+	})
 }
 
 func TestInstalledMarker(t *testing.T) {

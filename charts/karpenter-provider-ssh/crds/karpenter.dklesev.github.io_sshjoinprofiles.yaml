@@ -28,7 +28,7 @@ spec:
     name: v1beta1
     schema:
       openAPIV3Schema:
-        description: SSHJoinProfile is a named, versioned set of install/join/leave/uninstall
+        description: SSHJoinProfile is a named, versioned set of install/join/leave/uninstall/reboot
           scripts.
         properties:
           apiVersion:
@@ -53,7 +53,7 @@ spec:
             properties:
               scripts:
                 description: |-
-                  ProfileScripts holds the four lifecycle phase scripts. Each is a Go
+                  ProfileScripts holds the lifecycle phase scripts. Each is a Go
                   text/template rendered with the join context and executed on the host via
                   `sudo bash` with KPSSH_* env injected. All scripts MUST be idempotent.
                 properties:
@@ -75,6 +75,15 @@ spec:
                       zombie guard both run it without a node class in hand, so it must not
                       reference .Vars or .Secrets (the nodeclass controller rejects profiles
                       that do).
+                    maxLength: 262144
+                    type: string
+                  reboot:
+                    description: |-
+                      Reboot restarts the host in place for node repair; without it, repair
+                      replaces the node instead. Runs after karpenter drained and fenced the
+                      node, and must return before the host goes down — schedule the reboot
+                      (`systemd-run --on-active=2 systemctl reboot`) rather than run it inline.
+                      Rendered with an empty context, like Leave.
                     maxLength: 262144
                     type: string
                   uninstall:
@@ -105,6 +114,10 @@ spec:
                     description: Leave is the SSHSIG over spec.scripts.leave.
                     maxLength: 16384
                     type: string
+                  reboot:
+                    description: Reboot is the SSHSIG over spec.scripts.reboot.
+                    maxLength: 16384
+                    type: string
                   uninstall:
                     description: Uninstall is the SSHSIG over spec.scripts.uninstall.
                     maxLength: 16384
@@ -123,6 +136,12 @@ spec:
                     type: string
                   leave:
                     description: Leave bounds the leave script (default 3m).
+                    pattern: ^([0-9]+(s|m|h))+$
+                    type: string
+                  reboot:
+                    description: |-
+                      Reboot bounds the reboot script (default 1m). The script only schedules
+                      the reboot; karpenter then waits for the node to come back.
                     pattern: ^([0-9]+(s|m|h))+$
                     type: string
                 type: object

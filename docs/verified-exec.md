@@ -103,7 +103,12 @@ the pinned SSH login:
 | op | signed? | mutating | notes |
 |---|---|---|---|
 | `probe` | no | no | built-in read-only facts (`nproc`, memory, arch, kubelet state) |
-| `install` / `join` / `leave` / `uninstall` | **yes** | yes | require a valid signature over the exact script bytes |
+| `install` / `join` / `leave` / `uninstall` / `reboot` | **yes** | yes | require a valid signature over the exact script bytes |
+
+`reboot` arrived after the first shim release. A host still on an older shim
+answers it with exit `5` (unknown phase); the controller treats that as a
+failed reboot and repair replaces the node instead — upgrade the shim to get
+in-place reboots.
 
 Exit codes: `0` ok · `1` internal error (see stderr) · `2` signature rejected ·
 `3` bad param · `4` malformed envelope · `5` unknown phase · `10` the signed

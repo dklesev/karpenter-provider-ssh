@@ -11,7 +11,7 @@ and disruption metrics; the provider adds the SSH-facing view:
 |---|---|---|---|
 | `kpssh_pool_hosts` | gauge | `state`, `class` | pool inventory by lifecycle state and host class, computed on scrape from the controller cache |
 | `kpssh_host_probe_duration_seconds` | histogram | `outcome` | SSH host probe latency (`success`/`error`) |
-| `kpssh_instance_phase_duration_seconds` | histogram | `phase`, `outcome` | profile script phases over SSH (`install`, `join`, `leave`) |
+| `kpssh_instance_phase_duration_seconds` | histogram | `phase`, `outcome` | profile script phases over SSH (`install`, `join`, `leave`, `reboot`) |
 | `kpssh_host_zombie_actions_total` | counter | `action` | zombie guard interventions: `left`, `parked_foreign`, `leave_failed` |
 | `kpssh_node_startup_taint_gate_seconds` | histogram | `taint_key` | time from Node creation until a gated [startup taint](concepts.md#startup-ordering-startup-taint-gates) was removed |
 

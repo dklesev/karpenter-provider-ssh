@@ -15,7 +15,7 @@ flowchart TB
         subgraph controller["karpenter-provider-ssh (one Pod)"]
             direction TB
             core["karpenter core v1.14<br>provisioner · disruption · termination · state"]:::dim
-            cp["CloudProvider (kpssh)<br>Create / Delete / Get / List<br>GetInstanceTypes · RepairPolicies"]:::prov
+            cp["CloudProvider (kpssh)<br>Create / Delete / Get / List<br>GetInstanceTypes · RepairPolicies · Reboot"]:::prov
             hp["host provider<br>claim (CAS) · release · probe"]:::prov
             bp["bootstrap provider<br>token mint · cluster-info"]:::prov
             ip["instance provider<br>join orchestration · adopt providerID"]:::prov
@@ -222,10 +222,15 @@ deletion — the reboot-rejoin failure mode. The guard first CASes the host into
 | profile/nodeclass misconfigured (missing signature, bad secret, template in a verified script) | claim released, host back to `Available` — the host was never touched; the error surfaces on the NodeClaim |
 | controller dies mid-join | new leader resumes via existing claim (idempotent scripts) |
 | NodeClaim force-deleted | probe controller notices dangling claim, releases host |
-| node NotReady 10 min | `RepairPolicies` → karpenter force-terminates the NodeClaim → normal leave path |
+| node NotReady 10 min (kubelet still reporting) | `RepairPolicies` → karpenter drains, fences and runs the profile's `reboot` phase, then waits for the new boot; no reboot phase, a failed reboot or a second one inside core's window → replaced as below |
+| node unreachable 10 min (`Ready=Unknown`) | `RepairPolicies` → karpenter force-terminates the NodeClaim → normal leave path |
 | host powered off mid-use | leave fails; host stays `Unhealthy` until probe recovers; Node object still deleted by karpenter |
 | warm host reboots and rejoins | profiles prevent it (leave disables kubelet + containerd); if a kubelet still shows up on an unclaimed host, the probe's **zombie guard** re-runs leave, then deletes the zombie Node (kubelet first, or it re-creates the Node) |
 | kubelet active on unclaimed host, **and** no Node matches its IP, **and** no install marker | host is parked `Unhealthy` with an explanatory probe error — possibly a foreign cluster's member; the provider never destroys what it cannot attribute |
+
+Both repair rows need karpenter's alpha `NodeRepair` feature gate, off by
+default: set `FEATURE_GATES=NodeRepair=true` through the chart's
+`controller.env`. Without it, karpenter does not repair unhealthy nodes.
 
 One placement note: the controller needs SSH reach to the pool hosts, and it
 deliberately refuses to run on nodes it manages itself — the chart's default
