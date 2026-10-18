@@ -91,9 +91,12 @@ jobs:
         with:
           # Must be built with Go >= the go.mod version, else it hard-errors
           # ("Go language version used to build golangci-lint is lower than the
-          # targeted Go version"). v2.13.2 is built with go1.27. Bump in lockstep
-          # with the go directive — dependabot does not track this input.
-          version: v2.13.2
+          # targeted Go version"), and its bundled x/tools must decode the
+          # toolchain's export data: go1.27.2 moved it to V5, which < v2.14.0
+          # cannot read (typecheck errors on every file). v2.15.0 is built with
+          # go1.27 and reads V5. Bump in lockstep with the go directive, patch
+          # releases included — dependabot does not track this input.
+          version: v2.15.0
 
       - name: shellcheck (shipped shell)
         # ubuntu-24.04 runners ship shellcheck. Files and severity live in the
