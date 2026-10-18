@@ -16,9 +16,11 @@
 package main
 
 import (
+	"github.com/samber/lo"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider/metrics"
 	corecontrollers "sigs.k8s.io/karpenter/pkg/controllers"
+	"sigs.k8s.io/karpenter/pkg/controllers/node/health"
 	"sigs.k8s.io/karpenter/pkg/controllers/state"
 	coreoperator "sigs.k8s.io/karpenter/pkg/operator"
 
@@ -39,7 +41,11 @@ func main() {
 		op.InstanceTypeProvider,
 	)
 	cloudProvider := metrics.Decorate(sshCloudProvider)
-	clusterState := state.NewCluster(op.Clock, op.GetClient(), cloudProvider)
+	// Repair runs as a disruption method that reads the matcher from cluster
+	// state; without it, repair silently never fires. nil unless the
+	// NodeRepair gate is on; panics on an invalid policy set.
+	repairPolicyMatcher := lo.Must(health.NewRepairPolicyMatcher(ctx, cloudProvider))
+	clusterState := state.NewCluster(op.Clock, op.GetClient(), cloudProvider, state.WithRepairPolicyMatcher(repairPolicyMatcher))
 
 	op.
 		WithControllers(ctx, corecontrollers.NewControllers(
@@ -52,6 +58,7 @@ func main() {
 			sshCloudProvider,
 			clusterState,
 			op.InstanceTypeStore,
+			op.PredictionStore,
 		)...).
 		WithControllers(ctx, controllers.NewControllers(
 			op.GetClient(), op.KubernetesInterface, op.HostProvider,
