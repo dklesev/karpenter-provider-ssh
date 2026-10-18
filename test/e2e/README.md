@@ -31,8 +31,9 @@ is real on small machines.
 
 One known flake under **local parallel runs**: every cluster's containers share
 the one `kind` docker network, and `SSHHost.spec.address` is the host
-container's IP recorded at creation. `TestE2EReboot`'s `docker restart` can
-then come back on a different IP (a parallel scenario's churn re-assigned the
+container's IP recorded at creation. `TestE2EReboot`'s `docker restart` (and
+the repair-reboot scenarios' in-container reboot) can then come back on a
+different IP (a parallel scenario's churn re-assigned the
 old one) and the host probes `Unhealthy` at the stale address until the wait
 times out — the failure diag shows an empty kubelet journal, i.e. the
 invariant under test actually held. Rerun it alone
@@ -56,6 +57,8 @@ disk" step exists for. `docker system df`, then
 | `TestE2EReboot` | `docker restart` of a warm host (faithful reboot: systemd re-inits, enabled units start) → host must **not** rejoin; probes back to `Available` |
 | `TestE2EZombieGuard` | NodeClaim force-deleted with finalizers stripped (provider `Delete` never runs, node keeps running) → probe detects the orphaned membership, force-runs `leave`, deletes the zombie Node |
 | `TestE2EPowerOutage` | claimed host powered off (`docker stop`), NodeClaim deleted (stands in for node repair after its 10-min NotReady toleration) → leave fails against the dead host but the claim releases, host parks `Unhealthy`; `docker start` boots the still-enabled kubelet with warm credentials → zombie guard leaves + disables it, host `Available` again |
+| `TestE2ERepairReboot` | the reboot node repair commits for a NotReady node (`Rebooting=True/RebootRequested`, written directly — no `NodeRepair` gate, no 10-min toleration) → karpenter drains and fences, the profile's `reboot` phase restarts the host container in place, it comes back → `RebootSucceeded` with a **new bootID**, same NodeClaim and host claim, workload Running again. The host image fakes a fresh `boot_id` per boot — the kernel's is shared by every container |
+| `TestE2EVerifiedRepairReboot` | as `TestE2ERepairReboot`, with the signed `reboot` phase going through the `ForceCommand` shim |
 | `TestE2EVerifiedJoinAndLeave` | `execMode: Verified` host: probe, install, join **and** leave all flow through the `ForceCommand` shim; signed profile joins a Ready node then warm-releases |
 | `TestE2EVerifiedRogueSignerRejectedByShim` | join signed by a key the CR's `trustedSigners` lists but the host's `allowed_signers` does not → the controller-side check passes, the correctly-signed install runs (pipeline works), the **host shim** rejects the rogue join, no node registers |
 | `TestE2EVerifiedUnsignedRejectedByController` | `execMode: Verified` profile with no signatures → the **controller** refuses at the install phase before connecting; nothing runs, no node registers |

@@ -22,7 +22,9 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 
 	"github.com/dklesev/karpenter-provider-ssh/pkg/apis/v1beta1"
 	"github.com/dklesev/karpenter-provider-ssh/pkg/controllers"
@@ -37,6 +39,9 @@ const (
 	hostBack    = 300 * time.Second
 	tryWindow   = 150 * time.Second // time to let the controller attempt a (failing) join
 	holdReject  = 60 * time.Second  // invariant hold after a rejection settles
+	// drain + systemd shutdown (~25s on kindest/node) + boot + kubelet Ready +
+	// core's 15s reboot poll.
+	repairReboot = 420 * time.Second
 )
 
 // rebootBack is the reboot scenario's own budget. Every other wait here races
@@ -181,6 +186,18 @@ func TestE2EPowerOutage(t *testing.T) {
 	c.holdFor(holdReject, "no zombie node lingers after cleanup", c.noPoolNodes)
 }
 
+// repair reboot: the reboot node repair commits for a NotReady node restarts
+// the claimed host in place through the profile's reboot phase — same Node,
+// same NodeClaim, new boot. Committed directly, so the scenario needs neither
+// the NodeRepair gate nor its 10-minute toleration.
+func TestE2ERepairReboot(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, 1)
+	c.setupRawPool("10m") // consolidation must not race the reboot
+	c.scaleSmoke(1)
+	c.rebootInPlace(c.joinOneNode())
+}
+
 // ----------------------------------------------------------- Verified scenarios
 
 // verified join + leave: a signed profile joins through the ForceCommand shim
@@ -198,6 +215,16 @@ func TestE2EVerifiedJoinAndLeave(t *testing.T) {
 	c.waitFor(consolidate, "verified node consolidated", c.noPoolNodes)
 	c.waitFor(hostBack, "host Available after verified leave", func() bool { return c.countHostState(v1beta1.HostStateAvailable) == len(c.hosts) })
 	c.assertUnitsDisabled(container)
+}
+
+// verified repair reboot: as TestE2ERepairReboot, with the signed reboot phase
+// going through the ForceCommand shim.
+func TestE2EVerifiedRepairReboot(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, 1)
+	c.setupVerifiedPool("10m", verifiedOpts{})
+	c.scaleSmoke(1)
+	c.rebootInPlace(c.joinOneNode())
 }
 
 // rogue signer rejected by the HOST shim: the join is validly signed by a key
@@ -294,6 +321,73 @@ func (c *cluster) joinOneNode() string {
 	return c.containerFor(name)
 }
 
+// rebootInPlace commits a reboot on the pool's only NodeClaim and asserts it
+// ends as a reboot, not a replacement: core reports RebootSucceeded, the host
+// container really restarted, the Node's bootID changed, and the same
+// NodeClaim still holds the host with its workload back.
+func (c *cluster) rebootInPlace(container string) {
+	c.t.Helper()
+	nc := c.onlyNodeClaim()
+	node := nc.Status.NodeName
+	before := c.nodeBootID(node)
+
+	// Pool hosts run without a restart policy. A rebooting container exits
+	// (systemd's in-container reboot, exit 129); this brings it back the way a
+	// rebooted machine comes back.
+	mustExec(c.t.Context(), c.t, "docker", "update", "--restart=on-failure", container)
+	c.commitReboot(nc.Name)
+
+	c.waitFor(repairReboot, "reboot succeeded", func() bool {
+		reason, msg := c.rebootReason(nc.Name)
+		if reason == karpv1.RebootReasonFailed {
+			c.t.Fatalf("reboot failed: %s", msg)
+		}
+		return reason == karpv1.RebootReasonSucceeded
+	})
+	if got := c.restartCount(container); got != "1" {
+		c.t.Fatalf("host container restarted %s times, want 1 (the reboot)", got)
+	}
+	if after := c.nodeBootID(node); after == before {
+		c.t.Fatalf("Node %s bootID unchanged (%s) after the reboot", node, after)
+	}
+	if got := c.onlyNodeClaim(); got.UID != nc.UID {
+		c.t.Fatalf("NodeClaim replaced (%s -> %s): want a reboot in place", nc.Name, got.Name)
+	}
+	if n := c.countHostState(v1beta1.HostStateInUse); n != 1 {
+		c.t.Fatalf("%d hosts InUse after the reboot, want the claim kept", n)
+	}
+	c.waitFor(joinReady, "smoke Running again on the rebooted node", func() bool { return c.podRunning("smoke") })
+}
+
+// commitReboot writes what node repair writes when it picks RebootNode: the
+// reboot drain bound (0s, forceful, like our RepairPolicies) and
+// Rebooting=True/RebootRequested. Core's reboot controller does the rest.
+func (c *cluster) commitReboot(name string) {
+	c.t.Helper()
+	ctx := c.t.Context()
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		nc := &karpv1.NodeClaim{}
+		if err := c.cl.Get(ctx, client.ObjectKey{Name: name}, nc); err != nil {
+			return err
+		}
+		stored := nc.DeepCopy()
+		if nc.Annotations == nil {
+			nc.Annotations = map[string]string{}
+		}
+		nc.Annotations[karpv1.RebootTerminationGracePeriodAnnotationKey] = "0s"
+		if err := c.cl.Patch(ctx, nc, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			return err
+		}
+		stored = nc.DeepCopy()
+		nc.StatusConditions().SetTrueWithReason(karpv1.ConditionTypeRebooting, karpv1.RebootReasonRequested, "committed by e2e")
+		return c.cl.Status().Patch(ctx, nc, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{}))
+	})
+	if err != nil {
+		c.t.Fatalf("commit reboot on NodeClaim %s: %v", name, err)
+	}
+	c.logf("committed a reboot on NodeClaim %s", name)
+}
+
 // ---------------------------------------------------------------- assert helpers
 
 func (c *cluster) assertUnitsDisabled(container string) {
@@ -322,6 +416,47 @@ func (c *cluster) someHostInstalled() bool {
 func (c *cluster) nodeExists(name string) bool {
 	var n corev1.Node
 	return c.cl.Get(c.t.Context(), client.ObjectKey{Name: name}, &n) == nil
+}
+
+// onlyNodeClaim returns the single NodeClaim the reboot scenarios run with.
+func (c *cluster) onlyNodeClaim() *karpv1.NodeClaim {
+	c.t.Helper()
+	var l karpv1.NodeClaimList
+	if err := c.cl.List(c.t.Context(), &l); err != nil {
+		c.t.Fatalf("list NodeClaims: %v", err)
+	}
+	if len(l.Items) != 1 {
+		c.t.Fatalf("%d NodeClaims, want exactly 1", len(l.Items))
+	}
+	return &l.Items[0]
+}
+
+// rebootReason is the NodeClaim's Rebooting condition reason and message ("" if
+// unset or unreadable — waitFor treats that as "not yet").
+func (c *cluster) rebootReason(name string) (string, string) {
+	nc := &karpv1.NodeClaim{}
+	if err := c.cl.Get(c.t.Context(), client.ObjectKey{Name: name}, nc); err != nil {
+		return "", ""
+	}
+	cond := nc.StatusConditions().Get(karpv1.ConditionTypeRebooting)
+	if cond == nil {
+		return "", ""
+	}
+	return cond.Reason, cond.Message
+}
+
+func (c *cluster) nodeBootID(name string) string {
+	c.t.Helper()
+	var n corev1.Node
+	if err := c.cl.Get(c.t.Context(), client.ObjectKey{Name: name}, &n); err != nil {
+		c.t.Fatalf("get Node %s: %v", name, err)
+	}
+	return n.Status.NodeInfo.BootID
+}
+
+func (c *cluster) restartCount(container string) string {
+	c.t.Helper()
+	return strings.TrimSpace(mustExec(c.t.Context(), c.t, "docker", "inspect", "-f", "{{.RestartCount}}", container))
 }
 
 func (c *cluster) firstNodeClaim() string {

@@ -51,6 +51,24 @@ RUN systemctl disable kubelet || true \
 
 RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh && systemctl enable ssh
 
+# A fresh boot ID every boot. /proc/sys/kernel/random/boot_id belongs to the
+# kernel every container shares, so a container restart keeps it — and
+# karpenter only counts a reboot as done once the Node's bootID changes. Fake
+# one per boot, the way kind fakes product_uuid; /run is a tmpfs, so each boot
+# starts clean, and kubelet starts later and reads the new value.
+RUN printf '%s\n' \
+      '[Unit]' \
+      'Description=e2e: fresh boot_id per container boot' \
+      'DefaultDependencies=no' \
+      'Before=sysinit.target' \
+      '[Service]' \
+      'Type=oneshot' \
+      'ExecStart=/bin/sh -c "cat /proc/sys/kernel/random/uuid > /run/kpssh-boot-id && mount --bind /run/kpssh-boot-id /proc/sys/kernel/random/boot_id"' \
+      '[Install]' \
+      'WantedBy=sysinit.target' \
+      > /etc/systemd/system/kpssh-boot-id.service \
+    && systemctl enable kpssh-boot-id.service
+
 # Verified-execution posture. Baked STATIC so a Verified host is provisioned
 # exactly as a real operator would provision one (see docs/verified-exec.md):
 #   - an unprivileged `kpssh` login user,

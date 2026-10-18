@@ -141,7 +141,9 @@ jobs:
           - TestE2EReboot
           - TestE2EZombieGuard
           - TestE2EPowerOutage
+          - TestE2ERepairReboot
           - TestE2EVerifiedJoinAndLeave
+          - TestE2EVerifiedRepairReboot
           - TestE2EVerifiedRogueSignerRejectedByShim
           - TestE2EVerifiedUnsignedRejectedByController
     steps:
