@@ -1,6 +1,6 @@
 # Base images are pinned by digest (tag kept for readability); dependabot bumps
 # both parts together.
-FROM --platform=$BUILDPLATFORM golang:1.27@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27@sha256:820153096fda4de6ac1b7194d12e416b7dd8f4e9a33d17e0345b111b945162d8 AS builder
 ARG TARGETOS TARGETARCH
 # VERSION is stamped into karpenter's operator version (startup log line).
 ARG VERSION=unspecified
