@@ -3,7 +3,7 @@ module github.com/dklesev/karpenter-provider-ssh
 go 1.27.2
 
 require (
-	github.com/awslabs/operatorpkg v0.0.0-20260812232916-6d329cee9a40
+	github.com/awslabs/operatorpkg v0.0.0-20261002163259-5e8ed3699dea
 	github.com/prometheus/client_golang v1.25.0
 	github.com/samber/lo v1.53.0
 	golang.org/x/crypto v0.58.0
@@ -13,7 +13,7 @@ require (
 	k8s.io/cluster-bootstrap v0.37.1
 	k8s.io/utils v0.0.0-20260626114624-be93311217bd
 	sigs.k8s.io/controller-runtime v0.25.2
-	sigs.k8s.io/karpenter v1.14.1
+	sigs.k8s.io/karpenter v1.15.0
 )
 
 require (
@@ -28,7 +28,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
@@ -95,6 +95,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.37.0 // indirect
 	k8s.io/apiserver v0.37.0 // indirect
+	k8s.io/autoscaler/vertical-pod-autoscaler v1.7.0 // indirect
 	k8s.io/cloud-provider v0.35.0 // indirect
 	k8s.io/code-generator v0.37.0 // indirect
 	k8s.io/component-base v0.37.0 // indirect

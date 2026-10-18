@@ -214,12 +214,35 @@ func (c *CloudProvider) IsDrifted(ctx context.Context, nodeClaim *karpv1.NodeCla
 }
 
 // RepairPolicies lets karpenter force-terminate NodeClaims on persistently
-// unhealthy nodes; the host then goes back through the probe loop.
+// unhealthy nodes; the host then goes back through the probe loop. A zero
+// TerminationGracePeriod skips the drain (nil inherits the NodeClaim's, which
+// may be unbounded). Core requires exactly one default fallback (empty
+// ReasonRegex), hence ".*" on the second policy.
 func (c *CloudProvider) RepairPolicies() []cloudprovider.RepairPolicy {
 	return []cloudprovider.RepairPolicy{
-		{ConditionType: corev1.NodeReady, ConditionStatus: corev1.ConditionFalse, TolerationDuration: 10 * time.Minute},
-		{ConditionType: corev1.NodeReady, ConditionStatus: corev1.ConditionUnknown, TolerationDuration: 10 * time.Minute},
+		{
+			ConditionType:          corev1.NodeReady,
+			ConditionStatus:        corev1.ConditionFalse,
+			TolerationDuration:     10 * time.Minute,
+			TerminationGracePeriod: new(time.Duration),
+			Action:                 cloudprovider.ReplaceNode,
+		},
+		{
+			ConditionType:          corev1.NodeReady,
+			ConditionStatus:        corev1.ConditionUnknown,
+			ReasonRegex:            ".*",
+			TolerationDuration:     10 * time.Minute,
+			TerminationGracePeriod: new(time.Duration),
+			Action:                 cloudprovider.ReplaceNode,
+		},
 	}
+}
+
+// Reboot implements cloudprovider.CloudProvider. Not supported: repair
+// replaces the NodeClaim instead, and this error type tells core's reboot
+// controller not to retry.
+func (c *CloudProvider) Reboot(context.Context, *karpv1.NodeClaim, string) error {
+	return cloudprovider.NewNodeRebootNotImplementedError()
 }
 
 // Name implements cloudprovider.CloudProvider.

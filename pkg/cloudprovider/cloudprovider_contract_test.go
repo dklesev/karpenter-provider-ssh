@@ -31,7 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
+	"sigs.k8s.io/karpenter/pkg/controllers/node/health"
 	"sigs.k8s.io/karpenter/pkg/events"
+	"sigs.k8s.io/karpenter/pkg/operator/options"
 	karpscheduling "sigs.k8s.io/karpenter/pkg/scheduling"
 
 	"github.com/dklesev/karpenter-provider-ssh/pkg/apis/v1beta1"
@@ -349,6 +351,18 @@ func TestDelete(t *testing.T) {
 			t.Fatalf("deleted = %v", f.instances.deleted)
 		}
 	})
+}
+
+// Core validates RepairPolicies only at startup and only with the NodeRepair
+// gate on (default off), so an invalid set would first surface as a panic on
+// whichever cluster enables it. Run core's own validator instead.
+func TestRepairPoliciesValid(t *testing.T) {
+	ctx := options.ToContext(context.Background(), &options.Options{
+		FeatureGates: options.FeatureGates{NodeRepair: true},
+	})
+	if _, err := health.NewRepairPolicyMatcher(ctx, &CloudProvider{}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestGetAndList(t *testing.T) {
