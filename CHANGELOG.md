@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.2.0](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.1.1...v1.2.0) (2026-10-19)
+
+
+### Features
+
+* reboot NotReady nodes in place over SSH ([#49](https://github.com/dklesev/karpenter-provider-ssh/issues/49)) ([0486b58](https://github.com/dklesev/karpenter-provider-ssh/commit/0486b58b4321b5e3c77f5b5a165b8fe02de0f728))
+
+
+### Dependencies
+
+* bump github.com/prometheus/client_golang from 1.24.1 to 1.25.0 ([#42](https://github.com/dklesev/karpenter-provider-ssh/issues/42)) ([277584b](https://github.com/dklesev/karpenter-provider-ssh/commit/277584b6bc555a713f2b1bd52e60a188c1a59d43))
+* bump Go to 1.27.2 and x/net to v0.60.0 ([#46](https://github.com/dklesev/karpenter-provider-ssh/issues/46)) ([5b3cb01](https://github.com/dklesev/karpenter-provider-ssh/commit/5b3cb01aa251a873f6abc5226aa1f957d6e58df8))
+* bump golang.org/x/crypto from 0.57.0 to 0.58.0 ([#43](https://github.com/dklesev/karpenter-provider-ssh/issues/43)) ([abb8736](https://github.com/dklesev/karpenter-provider-ssh/commit/abb873637f834485d28bccf6f3fa17214a86f7e9))
+* bump sigs.k8s.io/karpenter to v1.15.0 ([#48](https://github.com/dklesev/karpenter-provider-ssh/issues/48)) ([6523882](https://github.com/dklesev/karpenter-provider-ssh/commit/6523882f88d7bbdcdd8e3fc830277d9cac0eef62))
+
 ## [1.1.1](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.1.0...v1.1.1) (2026-10-04)
 
 
