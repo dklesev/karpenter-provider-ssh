@@ -14,7 +14,7 @@
 
 // Package v1beta1 contains the karpenter-provider-ssh API types:
 // SSHHost (pool inventory), SSHNodeClass (karpenter node class), and
-// SSHJoinProfile (pluggable install/join/leave/uninstall scripts).
+// SSHJoinProfile (pluggable install/join/leave/uninstall/reboot scripts).
 // +kubebuilder:object:generate=true
 // +groupName=karpenter.dklesev.github.io
 package v1beta1

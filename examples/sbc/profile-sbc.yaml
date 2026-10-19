@@ -220,3 +220,12 @@ spec:
       rm -f /etc/apt/sources.list.d/kubernetes.list
       systemctl daemon-reload
       echo "kpssh uninstall: OK"
+
+    reboot: |
+      #!/usr/bin/env bash
+      # Repair reboot: karpenter already drained and fenced the node. Scheduled,
+      # not inline, so this session exits 0 before the host goes down; join
+      # enabled kubelet, so the node comes back with its existing credentials.
+      set -euxo pipefail
+      systemd-run --on-active=2 systemctl reboot
+      echo "kpssh reboot: scheduled"

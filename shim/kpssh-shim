@@ -93,7 +93,7 @@ if [ "$phase" = "probe" ]; then
 fi
 
 case "$phase" in
-	install|join|leave|uninstall) ;;
+	install|join|leave|uninstall|reboot) ;;
 	*) die 5 "unknown phase: $phase" ;;
 esac
 

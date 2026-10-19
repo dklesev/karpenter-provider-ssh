@@ -86,7 +86,7 @@ func ObserveProbe(start time.Time, err error) {
 	probeDuration.WithLabelValues(outcome(err)).Observe(time.Since(start).Seconds())
 }
 
-// ObservePhase records one profile phase execution (install, join, leave).
+// ObservePhase records one profile phase execution (install, join, leave, reboot).
 func ObservePhase(phase string, start time.Time, err error) {
 	phaseDuration.WithLabelValues(phase, outcome(err)).Observe(time.Since(start).Seconds())
 }

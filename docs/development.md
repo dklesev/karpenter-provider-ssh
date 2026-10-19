@@ -73,7 +73,7 @@ KUBECONFIG=~/.kube/config POOL_NAMESPACE=kpssh-system \
 
 | env | what it proves | notes |
 |---|---|---|
-| kind + container hosts (in-repo) | full loop hands-off: pending pod → join → Ready, consolidation → warm release, **reboot-safety** (a restarted warm host must not rejoin), zombie guard, and **verified execution** (signed join; a rogue signer rejected by the host shim; an unsigned profile rejected by the controller) | `make e2e`; in CI it gates the release PR and runs on `/e2e` — see [test/e2e/](https://github.com/dklesev/karpenter-provider-ssh/tree/main/test/e2e) |
+| kind + container hosts (in-repo) | full loop hands-off: pending pod → join → Ready, consolidation → warm release, **reboot-safety** (a restarted warm host must not rejoin), zombie guard, **repair reboot** in place (Raw and Verified), and **verified execution** (signed join; a rogue signer rejected by the host shim; an unsigned profile rejected by the controller) | `make e2e`; in CI it gates the release PR and runs on `/e2e` — see [test/e2e/](https://github.com/dklesev/karpenter-provider-ssh/tree/main/test/e2e) |
 | Exoscale SKS | real cloud control plane, unofficial external nodes | needs kubelet-csr-approver for metrics; pool VMs in same SG+zone |
 | EKS Hybrid Nodes | the actual target: `nodeadm-ssm`, adopt providerID, warm/cold split, billing | real cluster required; see installation.md walkthrough |
 

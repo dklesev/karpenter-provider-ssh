@@ -18,7 +18,13 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/ssh"
 )
+
+// IsUnknownPhase matches on ExitStatus(); RunShim surfaces the remote status
+// as an *ssh.ExitError, which must keep satisfying it.
+var _ interface{ ExitStatus() int } = (*ssh.ExitError)(nil)
 
 func TestEnvelopeMarshal(t *testing.T) {
 	env := Envelope{

@@ -163,7 +163,7 @@ scales up.
 
 ## SSHJoinProfile (cluster-scoped, `kubectl get sjp`)
 
-A named, versioned join mechanism: four idempotent scripts. Full contract,
+A named, versioned join mechanism: a set of idempotent phase scripts. Full contract,
 environment table and authoring guide: [join-profiles.md](join-profiles.md).
 
 ```yaml
@@ -183,6 +183,8 @@ spec:
       …
     uninstall: |        # optional, manual/repair only
       …
+    reboot: |           # optional, repair reboots NotReady nodes in place
+      …
 ```
 
 ### spec
@@ -194,10 +196,12 @@ spec:
 | `scripts.join` | string | — | connect host to cluster (fast, every claim); **idempotent**. ≤ 256 KiB |
 | `scripts.leave` | string | — | disconnect, keep installed components (fast, every release); **idempotent**. ≤ 256 KiB. **Must render with an empty context** — no `.Vars`, no `.Secrets` ([contract](join-profiles.md#the-leave-contract-empty-render-context)) |
 | `scripts.uninstall` | string | `""` | full cleanup; never called automatically. ≤ 256 KiB |
+| `scripts.reboot` | string | `""` | in-place reboot for node repair; without it, repair replaces the node. Must schedule the reboot and return (karpenter drains first and waits for the new boot). **Must render with an empty context**, like `leave`. ≤ 256 KiB |
 | `timeouts.install` | duration | `10m` | deadline for the install script (slow bare-metal installs: raise it, but install+join must stay inside karpenter core's 15m registration TTL) |
 | `timeouts.join` | duration | `5m` | deadline for the join script |
 | `timeouts.leave` | duration | `3m` | deadline for the leave script |
-| `signatures.{install,join,leave,uninstall}` | string | — | Verified mode: armored SSHSIG over the matching script (`ssh-keygen -Y sign -n kpssh`, offline). Required when a `Verified` host runs the phase; the script must be **template-free**. ≤ 16 KiB each. See [Verified execution](verified-exec.md) |
+| `timeouts.reboot` | duration | `1m` | deadline for the reboot script |
+| `signatures.{install,join,leave,uninstall,reboot}` | string | — | Verified mode: armored SSHSIG over the matching script (`ssh-keygen -Y sign -n kpssh`, offline). Required when a `Verified` host runs the phase; the script must be **template-free**. ≤ 16 KiB each. See [Verified execution](verified-exec.md) |
 
 Timeouts are Go durations, pattern-validated as `^([0-9]+(s|m|h))+$` —
 `90s`, `10m`, `1h30m` are accepted; `1.5h`, `500ms` and bare numbers are not.

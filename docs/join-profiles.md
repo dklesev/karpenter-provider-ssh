@@ -17,6 +17,7 @@ profiles do.
 | `join` | every claim | idempotent, fast | seconds (warm) |
 | `leave` | every release | idempotent, fast, **must not destroy installed state** | seconds |
 | `uninstall` | never automatically — manual/repair | idempotent | any |
+| `reboot` | node repair reboots a NotReady node in place (optional — without it, repair replaces the node) | idempotent, **returns before the host goes down** | seconds |
 
 Rules the engine enforces or assumes:
 
@@ -77,6 +78,12 @@ The only context `leave` does get is the host's own addressing:
 know beyond that must be discoverable **on the host** (`systemctl is-enabled`,
 `test -f`, files written by `join`) — which is what an idempotent leave should
 be doing anyway.
+
+`reboot` follows the same contract — repair runs it from the installed-profile
+marker too. Karpenter has already drained and fenced the node and waits for
+the new boot itself, so the script only has to *schedule* the reboot and exit 0
+(`systemd-run --on-active=2 systemctl reboot`); rebooting inline kills the
+session mid-call.
 
 ## Environment contract
 

@@ -74,6 +74,9 @@ type Provider interface {
 	// legitimate teardown apart from a stale Delete aimed at a host that has
 	// since been re-claimed (see host.ClaimHeldBy).
 	Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim) error
+	// Reboot restarts the host backing a NodeClaim in place, fenced like
+	// Delete.
+	Reboot(ctx context.Context, nodeClaim *karpv1.NodeClaim) error
 	Get(ctx context.Context, providerID string) (*Instance, error)
 	List(ctx context.Context) ([]*Instance, error)
 }
@@ -477,6 +480,29 @@ func (p *DefaultProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClai
 	}
 	log.Info("host released", "host", h.Name, "leaveOK", leaveOK)
 	return nil
+}
+
+// Reboot runs the reboot phase of the host's installed profile. Core has
+// already drained and fenced the node and watches its bootID for recovery, so
+// this only has to get the reboot started. What retrying cannot fix — no
+// reboot script, a profile problem, a shim that predates the phase — is a
+// NodeRebootFailedError, which core turns into a replacement right away.
+func (p *DefaultProvider) Reboot(ctx context.Context, nodeClaim *karpv1.NodeClaim) error {
+	h, err := p.hostProvider.ByProviderID(ctx, nodeClaim.Status.ProviderID)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return cloudprovider.NewNodeClaimNotFoundError(err)
+		}
+		return err
+	}
+	if !host.ClaimHeldBy(h, nodeClaim) {
+		return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("host %s is not claimed by NodeClaim %s", h.Name, nodeClaim.Name))
+	}
+	err = runInstalledPhase(ctx, p.kubeClient, p.kubernetesInterface, p.exec, p.execShim, h, profile.PhaseReboot, hostRebootTimeout)
+	if isConfigError(err) || (h.Spec.ExecMode == v1beta1.ExecModeVerified && sshexec.IsUnknownPhase(err)) {
+		return cloudprovider.NewNodeRebootFailedError(err)
+	}
+	return err
 }
 
 // Get implements Provider.

@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/karpenter/pkg/controllers/node/health"
 	"sigs.k8s.io/karpenter/pkg/controllers/state"
 	coreoperator "sigs.k8s.io/karpenter/pkg/operator"
+	coreoptions "sigs.k8s.io/karpenter/pkg/operator/options"
 
 	sshcloudprovider "github.com/dklesev/karpenter-provider-ssh/pkg/cloudprovider"
 	"github.com/dklesev/karpenter-provider-ssh/pkg/controllers"
@@ -39,7 +40,7 @@ func main() {
 		op.EventRecorder,
 		op.InstanceProvider,
 		op.InstanceTypeProvider,
-	)
+	).WithLegacyNodeRepair(coreoptions.FromContext(ctx).LegacyNodeRepair)
 	cloudProvider := metrics.Decorate(sshCloudProvider)
 	// Repair runs as a disruption method that reads the matcher from cluster
 	// state; without it, repair silently never fires. nil unless the

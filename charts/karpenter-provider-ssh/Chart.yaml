@@ -45,4 +45,4 @@ annotations:
     - kind: SSHJoinProfile
       version: v1beta1
       name: sshjoinprofiles.karpenter.dklesev.github.io
-      description: Idempotent install/join/leave/uninstall scripts for a join mechanism
+      description: Idempotent install/join/leave/uninstall/reboot scripts for a join mechanism

@@ -54,15 +54,15 @@ type verifiedOpts struct {
 }
 
 // applyProfileVerified applies the profile in verified form: install no-op +
-// verbatim join/leave, signed over their EXACT stored bytes (read back via
-// jsonpath so the signature covers precisely what the controller will send).
+// verbatim join/leave/reboot, signed over their EXACT stored bytes (read back
+// via jsonpath so the signature covers precisely what the controller will send).
 func (c *cluster) applyProfileVerified(opts verifiedOpts) {
 	c.t.Helper()
 	c.applyProfileRaw()
 
 	if !opts.omitSignatures {
 		sigs := map[string]any{}
-		for _, phase := range []string{"install", "join", "leave"} {
+		for _, phase := range []string{"install", "join", "leave", "reboot"} {
 			signWith := c.signer
 			if phase == "join" && opts.rogueJoin != nil {
 				signWith = opts.rogueJoin

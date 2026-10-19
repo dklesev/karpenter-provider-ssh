@@ -16,6 +16,7 @@ package sshexec
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"maps"
 	"regexp"
@@ -34,14 +35,27 @@ const (
 	PhaseJoin      = "join"
 	PhaseLeave     = "leave"
 	PhaseUninstall = "uninstall"
+	PhaseReboot    = "reboot"
 )
 
+// signedPhases must match the shim's phase allow-list
+// (TestShimAcceptsEverySignedPhase): a phase the shim does not know fails on
+// every Verified host with exit 5.
+var signedPhases = []string{PhaseInstall, PhaseJoin, PhaseLeave, PhaseUninstall, PhaseReboot}
+
 func validPhase(p string) bool {
-	switch p {
-	case PhaseProbe, PhaseInstall, PhaseJoin, PhaseLeave, PhaseUninstall:
-		return true
-	}
-	return false
+	return p == PhaseProbe || slices.Contains(signedPhases, p)
+}
+
+// exitUnknownPhase is kpssh-shim's exit status for a phase outside its
+// allow-list.
+const exitUnknownPhase = 5
+
+// IsUnknownPhase reports whether a RunShim error is the shim refusing the
+// phase: the host runs a kpssh-shim older than this controller.
+func IsUnknownPhase(err error) bool {
+	var exit interface{ ExitStatus() int }
+	return errors.As(err, &exit) && exit.ExitStatus() == exitUnknownPhase
 }
 
 // paramNameRE is the envelope's param-name grammar: the documented KPSSH_*
@@ -66,7 +80,7 @@ var paramNameRE = regexp.MustCompile(`^KPSSH_[A-Za-z0-9_]+$`)
 // stdin. Everything on the wire is untrusted: the shim re-verifies Sig over
 // Script before it runs anything (see docs/verified-exec.md).
 type Envelope struct {
-	// Phase selects the operation (probe|install|join|leave|uninstall).
+	// Phase selects the operation (probe|install|join|leave|uninstall|reboot).
 	Phase string
 	// Script is the exact signed script bytes — byte-identical to what was
 	// signed in CI, with no export preamble injected (that would break the

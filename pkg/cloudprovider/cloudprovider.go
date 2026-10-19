@@ -49,6 +49,8 @@ type CloudProvider struct {
 
 	instanceProvider     instance.Provider
 	instanceTypeProvider instancetype.Provider
+
+	legacyNodeRepair bool
 }
 
 // New returns the SSH pool cloud provider.
@@ -59,6 +61,13 @@ func New(kubeClient client.Client, recorder events.Recorder, instanceProvider in
 		instanceProvider:     instanceProvider,
 		instanceTypeProvider: instanceTypeProvider,
 	}
+}
+
+// WithLegacyNodeRepair tells RepairPolicies that core runs its legacy repair
+// controller (--legacy-node-repair), which only replaces.
+func (c *CloudProvider) WithLegacyNodeRepair(enabled bool) *CloudProvider {
+	c.legacyNodeRepair = enabled
+	return c
 }
 
 // Create claims + joins a pool host for the NodeClaim.
@@ -213,24 +222,31 @@ func (c *CloudProvider) IsDrifted(ctx context.Context, nodeClaim *karpv1.NodeCla
 	return "", nil
 }
 
-// RepairPolicies lets karpenter force-terminate NodeClaims on persistently
-// unhealthy nodes; the host then goes back through the probe loop. A zero
-// TerminationGracePeriod skips the drain (nil inherits the NodeClaim's, which
-// may be unbounded). Core requires exactly one default fallback (empty
-// ReasonRegex), hence ".*" on the second policy.
+// RepairPolicies reboots a node reporting NotReady in place (kubelet alive —
+// usually a wedged runtime or CNI) and replaces one that stopped reporting
+// (Unknown) right away, as it is likely down or cut off. Core escalates a
+// failed reboot, or a second one inside its window, to replacement, which
+// force-terminates the NodeClaim; the host then goes back through the probe
+// loop. A zero TerminationGracePeriod skips the drain (nil inherits the
+// NodeClaim's, which may be unbounded). Core requires exactly one default
+// fallback (empty ReasonRegex) — the Unknown policy.
 func (c *CloudProvider) RepairPolicies() []cloudprovider.RepairPolicy {
+	notReady := cloudprovider.RebootNode
+	if c.legacyNodeRepair {
+		notReady = cloudprovider.ReplaceNode // the legacy controller skips any other action
+	}
 	return []cloudprovider.RepairPolicy{
 		{
 			ConditionType:          corev1.NodeReady,
 			ConditionStatus:        corev1.ConditionFalse,
+			ReasonRegex:            ".*",
 			TolerationDuration:     10 * time.Minute,
 			TerminationGracePeriod: new(time.Duration),
-			Action:                 cloudprovider.ReplaceNode,
+			Action:                 notReady,
 		},
 		{
 			ConditionType:          corev1.NodeReady,
 			ConditionStatus:        corev1.ConditionUnknown,
-			ReasonRegex:            ".*",
 			TolerationDuration:     10 * time.Minute,
 			TerminationGracePeriod: new(time.Duration),
 			Action:                 cloudprovider.ReplaceNode,
@@ -238,11 +254,15 @@ func (c *CloudProvider) RepairPolicies() []cloudprovider.RepairPolicy {
 	}
 }
 
-// Reboot implements cloudprovider.CloudProvider. Not supported: repair
-// replaces the NodeClaim instead, and this error type tells core's reboot
-// controller not to retry.
-func (c *CloudProvider) Reboot(context.Context, *karpv1.NodeClaim, string) error {
-	return cloudprovider.NewNodeRebootNotImplementedError()
+// Reboot implements cloudprovider.CloudProvider by running the host
+// profile's reboot phase. operationID is unused: SSH has no request
+// idempotency, and core's bootID check already keeps a retry from rebooting
+// twice outside a narrow controller-restart race (accepted upstream).
+func (c *CloudProvider) Reboot(ctx context.Context, nodeClaim *karpv1.NodeClaim, _ string) error {
+	if nodeClaim.Status.ProviderID == "" {
+		return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("nodeclaim %s has no providerID", nodeClaim.Name))
+	}
+	return c.instanceProvider.Reboot(ctx, nodeClaim)
 }
 
 // Name implements cloudprovider.CloudProvider.

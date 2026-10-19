@@ -18,7 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ProfileScripts holds the four lifecycle phase scripts. Each is a Go
+// ProfileScripts holds the lifecycle phase scripts. Each is a Go
 // text/template rendered with the join context and executed on the host via
 // `sudo bash` with KPSSH_* env injected. All scripts MUST be idempotent.
 type ProfileScripts struct {
@@ -43,6 +43,15 @@ type ProfileScripts struct {
 	// +kubebuilder:validation:MaxLength=262144
 	// +optional
 	Uninstall string `json:"uninstall,omitempty"`
+
+	// Reboot restarts the host in place for node repair; without it, repair
+	// replaces the node instead. Runs after karpenter drained and fenced the
+	// node, and must return before the host goes down — schedule the reboot
+	// (`systemd-run --on-active=2 systemctl reboot`) rather than run it inline.
+	// Rendered with an empty context, like Leave.
+	// +kubebuilder:validation:MaxLength=262144
+	// +optional
+	Reboot string `json:"reboot,omitempty"`
 }
 
 // ProfileTimeouts bounds script execution per phase. Slow bare-metal installs
@@ -71,6 +80,13 @@ type ProfileTimeouts struct {
 	// +kubebuilder:validation:Pattern=`^([0-9]+(s|m|h))+$`
 	// +optional
 	Leave *metav1.Duration `json:"leave,omitempty"`
+
+	// Reboot bounds the reboot script (default 1m). The script only schedules
+	// the reboot; karpenter then waits for the node to come back.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern=`^([0-9]+(s|m|h))+$`
+	// +optional
+	Reboot *metav1.Duration `json:"reboot,omitempty"`
 }
 
 // ProfileSignatures holds the armored SSHSIG for each phase script, required by
@@ -98,6 +114,11 @@ type ProfileSignatures struct {
 	// +kubebuilder:validation:MaxLength=16384
 	// +optional
 	Uninstall string `json:"uninstall,omitempty"`
+
+	// Reboot is the SSHSIG over spec.scripts.reboot.
+	// +kubebuilder:validation:MaxLength=16384
+	// +optional
+	Reboot string `json:"reboot,omitempty"`
 }
 
 // SSHJoinProfileSpec defines a pluggable join mechanism.
@@ -127,7 +148,7 @@ type SSHJoinProfileSpec struct {
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.spec.version`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// SSHJoinProfile is a named, versioned set of install/join/leave/uninstall scripts.
+// SSHJoinProfile is a named, versioned set of install/join/leave/uninstall/reboot scripts.
 type SSHJoinProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

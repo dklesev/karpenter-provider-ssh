@@ -46,6 +46,7 @@ type fakeInstanceLifecycle struct {
 	created   *instance.Instance
 	createErr error
 	deleted   []string
+	rebooted  []string
 	instances []*instance.Instance
 }
 
@@ -55,6 +56,11 @@ func (f *fakeInstanceLifecycle) Create(_ context.Context, _ *v1beta1.SSHNodeClas
 
 func (f *fakeInstanceLifecycle) Delete(_ context.Context, nodeClaim *karpv1.NodeClaim) error {
 	f.deleted = append(f.deleted, nodeClaim.Status.ProviderID)
+	return nil
+}
+
+func (f *fakeInstanceLifecycle) Reboot(_ context.Context, nodeClaim *karpv1.NodeClaim) error {
+	f.rebooted = append(f.rebooted, nodeClaim.Status.ProviderID)
 	return nil
 }
 
@@ -363,6 +369,43 @@ func TestRepairPoliciesValid(t *testing.T) {
 	if _, err := health.NewRepairPolicyMatcher(ctx, &CloudProvider{}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// The legacy repair controller (--legacy-node-repair) skips every policy that
+// is not ReplaceNode, so in that mode a reboot policy would mean the condition
+// is never repaired at all.
+func TestRepairPoliciesLegacyOnlyReplace(t *testing.T) {
+	for _, p := range (&CloudProvider{}).WithLegacyNodeRepair(true).RepairPolicies() {
+		if p.Action != cloudprovider.ReplaceNode {
+			t.Errorf("legacy policy %s=%s uses %s", p.ConditionType, p.ConditionStatus, p.Action)
+		}
+	}
+}
+
+func TestReboot(t *testing.T) {
+	// Same contract as Delete: a claim that never launched has no host.
+	t.Run("empty providerID is NodeClaimNotFound", func(t *testing.T) {
+		f := newContractFixture(t, true)
+		err := f.cp.Reboot(context.Background(), contractNodeClaim(), "op-1")
+		if !cloudprovider.IsNodeClaimNotFoundError(err) {
+			t.Fatalf("want NodeClaimNotFoundError, got %v", err)
+		}
+		if len(f.instances.rebooted) != 0 {
+			t.Fatalf("instance reboot called for empty providerID: %v", f.instances.rebooted)
+		}
+	})
+
+	t.Run("delegates to instance provider", func(t *testing.T) {
+		f := newContractFixture(t, true)
+		nc := contractNodeClaim()
+		nc.Status.ProviderID = "kpssh://kpssh-system/host-a"
+		if err := f.cp.Reboot(context.Background(), nc, "op-1"); err != nil {
+			t.Fatalf("Reboot: %v", err)
+		}
+		if len(f.instances.rebooted) != 1 || f.instances.rebooted[0] != nc.Status.ProviderID {
+			t.Fatalf("rebooted = %v", f.instances.rebooted)
+		}
+	})
 }
 
 func TestGetAndList(t *testing.T) {

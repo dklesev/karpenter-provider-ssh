@@ -115,6 +115,26 @@ func requireShimTools(t *testing.T) {
 	}
 }
 
+// The shim's phase allow-list must match signedPhases: a phase the controller
+// sends but the shim refuses fails on every Verified host (exit 5).
+func TestShimAcceptsEverySignedPhase(t *testing.T) {
+	requireShimTools(t)
+	s := newSigner(t)
+	script := []byte("#!/usr/bin/env bash\ntrue\n")
+	sig := s.sign(t, script)
+	for _, phase := range signedPhases {
+		t.Run(phase, func(t *testing.T) {
+			wire, err := Envelope{Phase: phase, Script: script, Sig: sig}.Marshal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out, code := runShim(t, s.allowedSigners, wire); code != 0 {
+				t.Fatalf("exit=%d, want 0\n%s", code, out)
+			}
+		})
+	}
+}
+
 func TestShimRunsSignedScript(t *testing.T) {
 	requireShimTools(t)
 	s := newSigner(t)

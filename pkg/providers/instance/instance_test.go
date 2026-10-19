@@ -412,6 +412,89 @@ func TestDeleteFencesForeignClaim(t *testing.T) {
 	}
 }
 
+func rebootProfile() *v1beta1.SSHJoinProfile {
+	p := testProfile()
+	p.Spec.Scripts.Reboot = "echo reboot"
+	return p
+}
+
+// TestRebootRunsRebootPhase: the profile's reboot script runs and the host
+// keeps its claim — a reboot is not a release.
+func TestRebootRunsRebootPhase(t *testing.T) {
+	exec := &fakeExec{}
+	p, c, _ := newTestProvider(t, exec.run, claimedTestHost(), rebootProfile())
+
+	if err := p.Reboot(context.Background(), deletingClaim("nc-1", "uid-1")); err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.scripts) != 1 || exec.scripts[0] != "echo reboot" {
+		t.Errorf("scripts = %v, want reboot only", exec.scripts)
+	}
+	got := getTestHost(t, c, "host-a")
+	if got.Status.State != v1beta1.HostStateInUse || got.Status.ClaimRef == nil {
+		t.Errorf("state=%s claimRef=%v, want the claim kept InUse", got.Status.State, got.Status.ClaimRef)
+	}
+}
+
+// TestRebootFailures: what retrying cannot fix must be NodeRebootFailedError,
+// which core turns into a replacement at once; an SSH failure must not be, or
+// one dropped connection would cost the node.
+func TestRebootFailures(t *testing.T) {
+	t.Run("no reboot script", func(t *testing.T) {
+		exec := &fakeExec{}
+		p, _, _ := newTestProvider(t, exec.run, claimedTestHost(), testProfile())
+		err := p.Reboot(context.Background(), deletingClaim("nc-1", "uid-1"))
+		if !cloudprovider.IsNodeRebootFailedError(err) {
+			t.Fatalf("want NodeRebootFailedError, got %v", err)
+		}
+		if len(exec.scripts) != 0 {
+			t.Errorf("nothing should run: %v", exec.scripts)
+		}
+	})
+
+	t.Run("ssh failure is retryable", func(t *testing.T) {
+		p, _, _ := newTestProvider(t, (&fakeExec{errOn: 1}).run, claimedTestHost(), rebootProfile())
+		err := p.Reboot(context.Background(), deletingClaim("nc-1", "uid-1"))
+		if err == nil || cloudprovider.IsNodeRebootFailedError(err) {
+			t.Fatalf("want a plain, retryable error, got %v", err)
+		}
+	})
+
+	t.Run("verified host whose shim predates reboot", func(t *testing.T) {
+		h := claimedTestHost()
+		h.Spec.ExecMode = v1beta1.ExecModeVerified
+		prof := rebootProfile()
+		prof.Spec.Signatures = &v1beta1.ProfileSignatures{Reboot: "-----BEGIN SSH SIGNATURE-----\nAAAA\n-----END SSH SIGNATURE-----\n"}
+		p, _, _ := newTestProvider(t, nil, h, prof)
+		p.execShim = func(context.Context, sshexec.Target, sshexec.Envelope) (*sshexec.Result, error) {
+			return nil, shimExit(5)
+		}
+		err := p.Reboot(context.Background(), deletingClaim("nc-1", "uid-1"))
+		if !cloudprovider.IsNodeRebootFailedError(err) {
+			t.Fatalf("want NodeRebootFailedError, got %v", err)
+		}
+	})
+
+	// Same fence as Delete: a static providerID resolves the host forever.
+	t.Run("host held by another claim", func(t *testing.T) {
+		exec := &fakeExec{}
+		p, _, _ := newTestProvider(t, exec.run, claimedTestHost(), rebootProfile())
+		err := p.Reboot(context.Background(), deletingClaim("nc-0", "uid-0"))
+		if !cloudprovider.IsNodeClaimNotFoundError(err) {
+			t.Fatalf("want NodeClaimNotFoundError, got %v", err)
+		}
+		if len(exec.scripts) != 0 {
+			t.Errorf("reboot must not run against another claim's node: %v", exec.scripts)
+		}
+	})
+}
+
+// shimExit is a remote exit status the way RunShim reports one.
+type shimExit int
+
+func (e shimExit) Error() string   { return fmt.Sprintf("exit status %d", int(e)) }
+func (e shimExit) ExitStatus() int { return int(e) }
+
 // TestDeleteCollectsUnspentBootstrapToken: a join that never reached
 // registration leaves its token behind; the release path collects it.
 func TestDeleteCollectsUnspentBootstrapToken(t *testing.T) {

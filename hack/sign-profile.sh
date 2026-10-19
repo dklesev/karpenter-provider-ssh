@@ -7,7 +7,7 @@
 #
 # Usage:   hack/sign-profile.sh <signing-key> <script-dir>
 #   <signing-key>  an SSH private key (ssh-keygen -t ed25519 -f kpssh-signer)
-#   <script-dir>   holds install.sh / join.sh / leave.sh / uninstall.sh (any subset)
+#   <script-dir>   holds install.sh / join.sh / leave.sh / uninstall.sh / reboot.sh (any subset)
 #
 # The signing key stays offline — run this in CI or on a trusted workstation,
 # never on the controller or a pool host. Namespace is fixed to `kpssh`
@@ -19,7 +19,7 @@ DIR="${2:?usage: sign-profile.sh <signing-key> <script-dir>}"
 NS="${KPSSH_NAMESPACE:-kpssh}"
 
 echo "  signatures:"
-for phase in install join leave uninstall; do
+for phase in install join leave uninstall reboot; do
 	f="$DIR/$phase.sh"
 	[ -f "$f" ] || continue
 	printf '    %s: |\n' "$phase"

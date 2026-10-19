@@ -220,7 +220,7 @@ export E2E_MAX_CLUSTERS ?= $(E2E_PARALLEL)
 # single container, which is the worst possible failure mode for a gate whose
 # entire job is to touch real infrastructure.
 .PHONY: e2e
-e2e: ## full-loop e2e: parallel per-scenario kind clusters — raw (scale-up, consolidation, reboot, zombie) + verified exec (join, rogue signer, unsigned)
+e2e: ## full-loop e2e: parallel per-scenario kind clusters — raw (scale-up, consolidation, reboot, zombie, power outage, repair reboot) + verified exec (join, repair reboot, rogue signer, unsigned)
 	go test -tags e2e -count=1 -timeout 40m -parallel $(E2E_PARALLEL) -v ./test/e2e/...
 
 # The -timeout is a backstop, NOT a budget: the scenarios bound themselves with
