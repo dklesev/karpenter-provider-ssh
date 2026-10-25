@@ -1,6 +1,6 @@
 module github.com/dklesev/karpenter-provider-ssh
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/awslabs/operatorpkg v0.0.0-20261002163259-5e8ed3699dea
