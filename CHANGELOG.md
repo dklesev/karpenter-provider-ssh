@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.2.1](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.2.0...v1.2.1) (2026-10-25)
+
+
+### Dependencies
+
+* bump Go to 1.27.3 ([#53](https://github.com/dklesev/karpenter-provider-ssh/issues/53)) ([78a7fbb](https://github.com/dklesev/karpenter-provider-ssh/commit/78a7fbb089454bd6284bd219e32193298163b5c9))
+
 ## [1.2.0](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.1.1...v1.2.0) (2026-10-19)
 
 
