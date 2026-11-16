@@ -42,6 +42,10 @@ updates:
       images:
         patterns:
           - "*"
+    # golang moves with go.mod's go line, so Renovate bumps it
+    # (.github/renovate.json5).
+    ignore:
+      - dependency-name: golang
     commit-message:
       prefix: deps
   # test/e2e/host-image is intentionally not monitored: the e2e suite always

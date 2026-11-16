@@ -1,0 +1,55 @@
+// Renovate owns only the Go toolchain; dependabot.yml owns everything else.
+//
+// Dependabot never proposes a bump of go.mod's `go` line, and CI's setup-go
+// installs exactly that version, so every Go stdlib CVE turned govulncheck red
+// on all open PRs until someone bumped it by hand. These pins move together in
+// one PR, or each one's PR fails on the others:
+//   - go.mod `go` line: what CI builds, tests and govulncheck-scans with
+//   - Dockerfile golang builder: what ships; the image sets GOTOOLCHAIN=local,
+//     so it must be >= the `go` line or the image build fails
+//   - golangci-lint (ci.yaml + Makefile): must be built with Go >= the `go`
+//     line and read its export data (see the comment in ci.yaml)
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  enabledManagers: ["gomod", "dockerfile", "custom.regex"],
+  // Commit through GitHub's API so commits are signed (main requires it).
+  platformCommit: "enabled",
+  // Module CVE PRs come from dependabot.
+  vulnerabilityAlerts: { enabled: false },
+  // `deps:` like dependabot's gomod/docker PRs: a Go bump ships in the image,
+  // so it cuts a patch release.
+  semanticCommits: "enabled",
+  semanticCommitType: "deps",
+  semanticCommitScope: null,
+  customManagers: [
+    {
+      // A `# renovate: datasource=… depName=…` line directly above
+      // `version: v1.2.3` (ci.yaml) or `NAME = v1.2.3` (Makefile).
+      customType: "regex",
+      managerFilePatterns: ["/^Makefile$/", "/^\\.github/workflows/ci\\.yaml$/"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s*\\S+\\s*[:=]\\s*(?<currentValue>v\\S+)",
+      ],
+    },
+  ],
+  packageRules: [
+    { matchPackageNames: ["*"], enabled: false },
+    {
+      matchDepNames: ["go", "golang", "golangci/golangci-lint"],
+      enabled: true,
+      groupName: "go toolchain",
+      // Go 1.N.x patches get their own PR, apart from the 1.N+1 minor one:
+      // a minor can sit red until golangci-lint ships a build for it, and a
+      // stdlib CVE fix must not wait on that.
+      separateMinorPatch: true,
+    },
+    {
+      // Renovate leaves the `go` line alone by default (a minimum version, for
+      // libraries); this is an application, so bump it.
+      matchManagers: ["gomod"],
+      matchDepNames: ["go"],
+      matchDepTypes: ["golang"],
+      rangeStrategy: "bump",
+    },
+  ],
+}
