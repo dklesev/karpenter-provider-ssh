@@ -1,7 +1,7 @@
 # Base images are pinned by digest (tag kept for readability) and bumped with
 # both parts together: golang by Renovate (exact patch tag, in lockstep with
 # go.mod's go line, see .github/renovate.json5), the rest by dependabot.
-FROM --platform=$BUILDPLATFORM golang:1.27.4@sha256:205c7636d74e0ffbe3d007162df7d74f859f5a8c8322dfb9f907977686c126cf AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4@sha256:fe517acaa580cc7915457080f850c37e618b3c1e750f98b58fc6429b605147a1 AS builder
 ARG TARGETOS TARGETARCH
 # VERSION is stamped into karpenter's operator version (startup log line).
 ARG VERSION=unspecified
