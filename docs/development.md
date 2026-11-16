@@ -114,7 +114,9 @@ before it does.
 Dependabot follows the same rule: `gomod` and `docker` bumps land as `deps:`
 — which cuts a patch release, so a CVE fix in the shipped binary reaches users
 — while `github-actions` bumps stay `ci:` (they change how we build, never
-what we ship).
+what we ship). The Go toolchain is the exception: Dependabot never bumps
+go.mod's `go` line, so Renovate (`.github/renovate.json5`) bumps it together
+with the `golang` builder image and golangci-lint, as `deps:`.
 
 ## Release process
 

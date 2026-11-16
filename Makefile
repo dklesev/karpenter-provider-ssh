@@ -12,7 +12,8 @@ HELM_DOCS  = go run github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
 ACTIONLINT = go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.10
 
 # Must match the version ci.yaml feeds golangci-lint-action, or `make lint`
-# green and CI red stop being the same statement. Bump both together.
+# green and CI red stop being the same statement. Renovate bumps both together.
+# renovate: datasource=github-releases depName=golangci/golangci-lint
 GOLANGCI_VERSION = v2.15.0
 GOLANGCI = go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 
