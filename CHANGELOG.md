@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.2.3](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.2.2...v1.2.3) (2026-11-16)
+
+
+### Dependencies
+
+* bump Go to 1.27.4 and golang.org/x/crypto to 0.59.0 ([#67](https://github.com/dklesev/karpenter-provider-ssh/issues/67)) ([8e7cfe3](https://github.com/dklesev/karpenter-provider-ssh/commit/8e7cfe3a9363358d3cfa98d0f2177f4f30096634))
+* bump go.opentelemetry.io/otel/trace from 1.44.0 to 1.47.0 ([#62](https://github.com/dklesev/karpenter-provider-ssh/issues/62)) ([e816573](https://github.com/dklesev/karpenter-provider-ssh/commit/e816573378317396499e5d1167c6facf00b130f0))
+
 ## [1.2.2](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.2.1...v1.2.2) (2026-11-02)
 
 
