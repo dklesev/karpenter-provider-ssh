@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.2.4](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.2.3...v1.2.4) (2026-11-22)
+
+
+### Dependencies
+
+* bump sigs.k8s.io/controller-runtime from 0.25.2 to 0.25.3 in the k8s group ([#71](https://github.com/dklesev/karpenter-provider-ssh/issues/71)) ([2b89c26](https://github.com/dklesev/karpenter-provider-ssh/commit/2b89c268695126e3d11989f5e873d0539380fc08))
+
 ## [1.2.3](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.2.2...v1.2.3) (2026-11-16)
 
 
