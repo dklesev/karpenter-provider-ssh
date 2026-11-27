@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.2.5](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.2.4...v1.2.5) (2026-11-27)
+
+
+### Dependencies
+
+* update golang:1.27.4 docker digest to 5f1b98f ([#75](https://github.com/dklesev/karpenter-provider-ssh/issues/75)) ([01fb0fe](https://github.com/dklesev/karpenter-provider-ssh/commit/01fb0fe51062d068190170847cf805653346da04))
+
 ## [1.2.4](https://github.com/dklesev/karpenter-provider-ssh/compare/v1.2.3...v1.2.4) (2026-11-22)
 
 
